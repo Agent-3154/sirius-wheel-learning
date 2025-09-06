@@ -1,4 +1,7 @@
-from isaaclab.terrains import TerrainImporterCfg, SubTerrainBaseCfg
+import active_adaptation
+from active_adaptation.registry import Registry
+
+from isaaclab.terrains import TerrainImporterCfg, SubTerrainBaseCfg, TerrainGeneratorCfg
 from isaaclab.utils import configclass
 import isaaclab.sim as sim_utils
 import numpy as np
@@ -6,6 +9,7 @@ import numpy as np
 from dataclasses import MISSING
 from .functional import platform_with_slope
 
+registry = Registry.instance()
 
 @configclass
 class PlatformWithSlopeCfg(SubTerrainBaseCfg):
@@ -15,6 +19,24 @@ class PlatformWithSlopeCfg(SubTerrainBaseCfg):
     )
     height_range: tuple[float, float] = (0.1, 0.2)
 
+
+SIRIUS_DEMO = TerrainGeneratorCfg(
+    seed=0,
+    size=(8.0, 8.0),
+    border_width=65.0,
+    num_rows=10,
+    num_cols=20,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    sub_terrains={
+        "platform_with_slope": PlatformWithSlopeCfg(
+            proportion=0.5,
+            height_range=(0.1, 0.3),
+        ),
+    },
+)
 
 
 ROUGH_TERRAIN_BASE_CFG = TerrainImporterCfg(
@@ -36,3 +58,5 @@ ROUGH_TERRAIN_BASE_CFG = TerrainImporterCfg(
     # ),
     debug_vis=False,
 )
+
+registry.register("terrain", "sirius_demo", ROUGH_TERRAIN_BASE_CFG.replace(terrain_generator=SIRIUS_DEMO))

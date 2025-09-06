@@ -21,7 +21,9 @@ def platform_with_slope(size: tuple[float, float], height: float = 0.1):
     slope.apply_translation([-size[0] * 0.5, size[1] * 0.25, height])
     mesh: trimesh.Trimesh = trimesh.util.concatenate([ground, platform, slope])
     mesh.merge_vertices()
-    return mesh
+    mesh.apply_translation([size[0] / 2, size[1] / 2, 0.0])
+    origin = np.array([size[0] / 2, size[1] / 2, height])
+    return [mesh], origin
 
 
 if __name__ == "__main__":
