@@ -97,4 +97,51 @@ SIRIUS_WHEEL_CFG = ArticulationCfg(
     }),
 )
 
+
+SIRIUS_DIFF = ArticulationCfg(
+    spawn=sim_utils.UsdFileCfg(
+        usd_path=f"{ASSET_PATH}/assets/sirius_diff_new/sirius_diff_new.usd",
+        activate_contact_sensors=True,
+    ),
+    init_state=ArticulationCfg.InitialStateCfg(
+        pos=(0.0, 0.0, 0.6),
+        joint_pos={
+            ".*_HAA": 0.,
+            "[L,R]F_HFE":  0.4,
+            "[L,R]H_HFE": -0.4,
+            "[L,R]F_KFE": -1.2,
+            "[L,R]H_KFE":  1.2,
+        },
+        joint_vel={".*": 0.}
+    ),
+    soft_joint_pos_limit_factor=0.9,
+    actuators={
+        "base_legs": ImplicitActuatorCfg(
+            joint_names_expr=".*",
+            effort_limit_sim={".*": 50.},
+            velocity_limit_sim=80.,
+        )
+    },
+    joint_symmetry_mapping=mirrored({
+        "LF_HAA": (-1, "RF_HAA"),
+        "LH_HAA": (-1, "RH_HAA"),
+        "LF_HFE": (1, "RF_HFE"),
+        "LH_HFE": (1, "RH_HFE"),
+        "LF_KFE": (1, "RF_KFE"),
+        "LH_KFE": (1, "RH_KFE")
+    }),
+    spatial_symmetry_mapping=mirrored({
+        "trunk": "trunk",
+        "LF_hip": "RF_hip",
+        "LH_hip": "RH_hip",
+        "LF_calf": "RF_calf",
+        "LH_calf": "RH_calf",
+        "LF_thigh": "RF_thigh",
+        "LH_thigh": "RH_thigh",
+        "LF_FOOT": "RF_FOOT",
+        "LH_FOOT": "RH_FOOT",
+    }),
+)
+    
 registry.register("asset", "sirius_wheel", SIRIUS_WHEEL_CFG)
+registry.register("asset", "sirius_diff", SIRIUS_DIFF)

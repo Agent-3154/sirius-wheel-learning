@@ -1,8 +1,6 @@
 import active_adaptation
 
-from . import terrain
-
 if active_adaptation.get_backend() == "isaac":
-    from . import sirius_assets
+    from . import sirius_terrain_isaac
 else:
-    pass
+    from . import sirius_terrain_mujoco
