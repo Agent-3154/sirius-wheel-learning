@@ -120,6 +120,18 @@ SIRIUS_DIFF = ArticulationCfg(
             joint_names_expr=".*",
             effort_limit_sim={".*": 50.},
             velocity_limit_sim=80.,
+            stiffness={
+                ".*_HAA": 30.,
+                ".*_HFE": 30.,
+                ".*_KFE": 30.,
+            },
+            damping={
+                ".*_HAA": 2.,
+                ".*_HFE": 2.,
+                ".*_HFE": 2.,
+            },
+            armature=0.01,
+            friction=0.01
         )
     },
     joint_symmetry_mapping=mirrored({
