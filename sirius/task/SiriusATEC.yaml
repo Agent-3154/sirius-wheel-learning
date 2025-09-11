@@ -60,6 +60,7 @@ reward:
     joint_torques_l2:   {weight: 5.0e-6}
     action_rate_l2:     {weight: 0.005}
     action_rate2_l2:    {weight: 0.005}
+    feet_air_time:      {weight: 0.2, body_names: .*_FOOT, thres: 0.4}
   debug:
     _enabled_: false
     feet_sliding:       {weight: 1.0, body_names: .*FOOT}
