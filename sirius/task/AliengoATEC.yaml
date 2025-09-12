@@ -8,7 +8,8 @@ viewer:
   eye: [4.0, 4.0, 4.0]
 
 robot:
-  name: sirius_diff
+  # name: sirius_diff
+  name: aliengo
 terrain: plane
 # terrain: sirius_atec
 
@@ -23,7 +24,7 @@ sim:
 
 action:
   _target_: active_adaptation.envs.mdp.action.JointPosition
-  action_scaling: {.*_(HAA|HFE|KFE): 1.0}
+  action_scaling: {.*_joint: 0.5}
   max_delay: 1
   alpha: [0.6, 0.9]
 
@@ -37,13 +38,13 @@ command:
   stand_prob: 0.05
 
 observation:
-  # command:
-  policy:
+  command:
     command:
+  policy:
     root_linvel_b:    {yaw_only: true}
     root_angvel_b:
     projected_gravity_b: {noise_std: 0.05}
-    joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
+    joint_pos_multistep: {steps: 4, noise_std: 0.05}
     joint_vel_multistep: {steps: 4, noise_std: 0.2}
     prev_actions: {steps: 3}
 
@@ -60,47 +61,52 @@ reward:
     energy_l1:          {weight: 2.0e-4}
     joint_acc_l2:       {weight: 1.0e-7}
     joint_torques_l2:   {weight: 5.0e-6}
-    action_rate_l2:     {weight: 0.005}
+    action_rate_l2:     {weight: 0.01}
     action_rate2_l2:    {weight: 0.005}
-    feet_air_time:      {weight: 0.2, body_names: .*_FOOT, thres: 0.4}
+    # feet_air_time:      {weight: 0.2, body_names: .*_foot, thres: 0.4}
   debug:
     _enabled_: false
-    feet_sliding:       {weight: 1.0, body_names: .*FOOT}
-    feet_contact_count: {weight: 1.0, body_names: .*FOOT}
+    feet_sliding:       {weight: 1.0, body_names: .*foot}
+    feet_contact_count: {weight: 1.0, body_names: .*foot}
 
 termination:
-  crash_leg(crash): {body_names_expr: [".*thigh", ".*calf"], t_thres: 0.02}
+  # crash_leg(crash): {body_names_expr: [".*thigh", ".*calf"], t_thres: 0.02}
   crash_body(crash): {body_names_expr: ["base", ".*hip"], t_thres: 0.02}
+  fall_over: {xy_thres: 0.9}
 
 randomization:
   perturb_body_mass:
     (?!(front|back)).*: [0.95, 1.1]
   perturb_body_materials:
-    body_names: ".*_FOOT"
-    static_friction_range:  [0.5, 2.0]
-    dynamic_friction_range: [0.5, 2.0]
+    body_names: ".*_foot"
+    static_friction_range:  [0.5, 4.0]
+    dynamic_friction_range: [0.5, 4.0]
     restitution_range:      [0.0, 0.5]
     homogeneous: true # ${task.homogeneous}
   motor_params:
     actuator_name: base_legs
     stiffness_range:  
-      .*_HAA: [0.8, 1.2]
-      .*_HFE: [0.8, 1.2]
-      .*_KFE: [0.8, 1.2]
+      F[L,R]_hip_joint:   [0.9, 1.1]
+      F[L,R]_thigh_joint: [0.9, 1.1]
+      F[L,R]_calf_joint:  [0.9, 1.1]
+      R[L,R]_hip_joint:   [0.9, 1.1]
+      R[L,R]_thigh_joint: [0.9, 1.1]
+      R[L,R]_calf_joint:  [0.9, 1.1]
     damping_range:
-      .*_HAA: [0.8, 1.2]
-      .*_HFE: [0.8, 1.2]
-      .*_KFE: [0.8, 1.2]
+      F[L,R]_hip_joint:   [0.9, 1.1]
+      F[L,R]_thigh_joint: [0.9, 1.1]
+      F[L,R]_calf_joint:  [0.9, 1.1]
+      R[L,R]_hip_joint:   [0.9, 1.1]
+      R[L,R]_thigh_joint: [0.9, 1.1]
+      R[L,R]_calf_joint:  [0.9, 1.1]
     scale_factor_range:
-      .*_HAA: [0.9, 1.1]
-      .*_HFE: [0.9, 1.1]
-      .*_KFE: [0.9, 1.1]
-    armature_range:
-      .*: [0.0, 0.02]
+      .*_hip_joint:   [0.9, 1.1]
+      .*_thigh_joint: [0.9, 1.1]
+      .*_calf_joint:  [0.9, 1.1]
   reset_joint_states_scale:
     pos_scales:
       .*: [0.8, 1.2]
-  random_impulse: {}
+  # random_impulse: {}
   # drive_model_properties:
   #   joint_names: .*_(HFE|KFE)
   #   velocity_resistance_range: [0.0, 10.0]
