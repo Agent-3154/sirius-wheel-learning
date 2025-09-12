@@ -7,7 +7,8 @@ viewer:
   eye: [4.0, 4.0, 4.0]
 
 robot:
-  name: sirius_diff
+  # name: sirius_diff
+  name: aliengo
 terrain: plane
 # terrain: sirius_atec
 
@@ -36,15 +37,15 @@ command:
   stand_prob: 0.05
 
 observation:
-  command:
-    command:
+  # command:
   policy:
-    # root_angvel_b:
+    command:
+    root_linvel_b:    {yaw_only: true}
+    root_angvel_b:
     projected_gravity_b: {noise_std: 0.05}
-    joint_pos_multistep: {steps: 6, interval: 2, noise_std: 0.05, joint_names: .*_(HAA|HFE|KFE)}
-    # joint_vel_multistep: {steps: 4, noise_std: 0.2, joint_names: .*}
-    prev_actions: {steps: 2}
-    # sirius_joint_deviation: {}
+    joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
+    joint_vel_multistep: {steps: 4, noise_std: 0.2}
+    prev_actions: {steps: 3}
 
 reward:
   loco:
@@ -53,6 +54,7 @@ reward:
     angvel_z_exp:       {weight: 1.2, gamma: 0.8}
     angvel_xy_l2:       {weight: 0.02}
     linvel_z_l2:        {weight: 0.5}
+    base_height_l1:     {weight: 2.0, target_height: 0.4}
     survival:           {weight: 1.0}
   reg:
     energy_l1:          {weight: 2.0e-4}
