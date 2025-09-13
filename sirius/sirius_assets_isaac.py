@@ -1,17 +1,18 @@
 import os
 import isaaclab.sim as sim_utils
+from pathlib import Path
 
 from isaaclab.actuators import ImplicitActuatorCfg
 from active_adaptation.registry import Registry
 from active_adaptation.assets.base import ArticulationCfg
 from active_adaptation.utils.symmetry import mirrored
 
-ASSET_PATH = os.path.dirname(__file__)
+ASSET_PATH = Path(__file__).parent / "assets"
 registry = Registry.instance()
 
 SIRIUS_WHEEL_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"{ASSET_PATH}/assets/sirius_wheel_sphere.usd",
+        usd_path=f"{ASSET_PATH}/sirius_wheel_sphere.usd",
         # usd_path=f"{ASSET_PATH}/sirius_wheel/sirius_wheel_mesh.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
@@ -100,7 +101,7 @@ SIRIUS_WHEEL_CFG = ArticulationCfg(
 
 SIRIUS_DIFF = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"{ASSET_PATH}/assets/sirius_diff_new/sirius_diff_new.usd",
+        usd_path=f"{ASSET_PATH}/sirius_diff_simplified.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
@@ -146,7 +147,7 @@ SIRIUS_DIFF = ArticulationCfg(
             damping={
                 ".*_HAA": 2.,
                 ".*_HFE": 2.,
-                ".*_HFE": 2.,
+                ".*_KFE": 2.,
             },
             armature=0.01,
             friction=0.01

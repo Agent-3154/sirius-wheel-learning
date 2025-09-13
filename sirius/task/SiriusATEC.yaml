@@ -46,6 +46,8 @@ observation:
     joint_pos_multistep: {steps: 4, noise_std: 0.05}
     joint_vel_multistep: {steps: 4, noise_std: 0.2}
     prev_actions: {steps: 3}
+  terrain:
+    height_scan: {x_range: [-1.2, 1.2], y_range: [-1.0, 1.0], x_resolution: 0.2, y_resolution: 0.2}
 
 reward:
   loco:
@@ -53,7 +55,7 @@ reward:
     angvel_z_exp:       {weight: 1.2}
     angvel_xy_l2:       {weight: 0.02}
     linvel_z_l2:        {weight: 0.5}
-    base_height_l1:     {weight: 2.0, target_height: 0.4}
+    base_height_l1:     {weight: 2.0, target_height: 0.45}
     root_upright:       {weight: 1.0}
     survival:           {weight: 1.0}
   reg:
@@ -63,7 +65,7 @@ reward:
     joint_torques_l2:   {weight: 5.0e-6}
     action_rate_l2:     {weight: 0.005}
     action_rate2_l2:    {weight: 0.005}
-    feet_air_time:      {weight: 0.1, body_names: .*_FOOT, thres: 0.4}
+    feet_air_time:      {weight: 0.1, body_names: .*_FOOT, thres: 0.3}
   debug:
     _enabled_: false
     linvel_projection:  {weight: 0.5}

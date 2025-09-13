@@ -1,4 +1,5 @@
 # @package task
+project: sirius
 name: SiriusDemo
 
 viewer:
