@@ -65,6 +65,7 @@ reward:
     joint_torques_l2:   {weight: 5.0e-6}
     action_rate_l2:     {weight: 0.005}
     action_rate2_l2:    {weight: 0.005}
+    undesired_contact:  {weight: 0.25, body_names: [.*_calf, .*thigh]}
     feet_air_time:      {weight: 0.1, body_names: .*_FOOT, thres: 0.3}
   debug:
     _enabled_: false
