@@ -10,7 +10,7 @@ viewer:
 robot:
   # name: sirius_diff
   name: aliengo
-terrain: plane
+terrain: easy
 # terrain: sirius_atec
 
 # common
@@ -30,7 +30,7 @@ action:
 
 command:
   class: Command2
-  linvel_x_range: [-0.8, 1.4]
+  linvel_x_range: [-1.0, 1.2]
   linvel_y_range: [-0.8, 0.8]
   angvel_range: [-2.0, 2.0]
   yaw_stiffness_range: [0.5, 1.0]
@@ -50,27 +50,28 @@ observation:
 
 reward:
   loco:
-    linvel_exp:         {weight: 1.5, dim: 2, gamma: 0.8}
-    linvel_projection:  {weight: 0.5}
-    angvel_z_exp:       {weight: 1.2, gamma: 0.8}
+    linvel_exp:         {weight: 1.5, yaw_only: true}
+    angvel_z_exp:       {weight: 1.2}
     angvel_xy_l2:       {weight: 0.02}
     linvel_z_l2:        {weight: 0.5}
     base_height_l1:     {weight: 2.0, target_height: 0.4}
+    root_upright:       {weight: 1.0}
     survival:           {weight: 1.0}
   reg:
     energy_l1:          {weight: 2.0e-4}
+    joint_vel_l2:       {weight: 0.001}
     joint_acc_l2:       {weight: 1.0e-7}
     joint_torques_l2:   {weight: 5.0e-6}
     action_rate_l2:     {weight: 0.01}
     action_rate2_l2:    {weight: 0.005}
-    # feet_air_time:      {weight: 0.2, body_names: .*_foot, thres: 0.4}
+    feet_air_time:      {weight: 0.1, body_names: .*_foot, thres: 0.4}
   debug:
     _enabled_: false
+    linvel_projection:  {weight: 0.5}
     feet_sliding:       {weight: 1.0, body_names: .*foot}
     feet_contact_count: {weight: 1.0, body_names: .*foot}
 
 termination:
-  # crash_leg(crash): {body_names_expr: [".*thigh", ".*calf"], t_thres: 0.02}
   crash_body(crash): {body_names_expr: ["base", ".*hip"], t_thres: 0.02}
   fall_over: {xy_thres: 0.9}
 

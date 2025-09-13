@@ -65,7 +65,7 @@ SIRIUS_WHEEL_CFG = ArticulationCfg(
             damping={
                 ".*_HAA": 1.,
                 ".*_HFE": 1.,
-                ".*_HFE": 1.,
+                ".*_KFE": 1.,
                 ".*_WHEEL": 10.
             },
             armature=0.01,

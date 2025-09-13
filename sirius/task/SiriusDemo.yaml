@@ -99,8 +99,7 @@ reward:
 termination:
   crash_leg(crash): {body_names_expr: [".*thigh", ".*calf"], t_thres: 0.02}
   crash_body(crash): {body_names_expr: ["trunk", ".*hip"], t_thres: 0.02}
-  root_height_below: {thres: 0.25}
-  sirius_jump: {}
+  sirius_jump: {height_thres: 0.25}
 
 randomization:
   perturb_body_mass:
@@ -131,7 +130,7 @@ randomization:
   reset_joint_states_scale:
     pos_scales:
       .*: [0.8, 1.2]
-  random_impulse: {}
+  random_impulse: {prob: 0.0025}
   # drive_model_properties:
   #   joint_names: .*_(HFE|KFE)
   #   velocity_resistance_range: [0.0, 10.0]
