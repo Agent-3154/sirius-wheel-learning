@@ -6,6 +6,8 @@ from isaaclab.terrains import (
     SubTerrainBaseCfg,
     TerrainGeneratorCfg,
     MeshPlaneTerrainCfg,
+    HfRandomUniformTerrainCfg,
+    MeshPitTerrainCfg
 )
 from isaaclab.utils import configclass
 import isaaclab.sim as sim_utils
@@ -57,6 +59,11 @@ SIRIUS_DEMO = TerrainGeneratorCfg(
         "platform_with_slope": PlatformWithSlopeCfg(
             proportion=0.5,
             height_range=(0.1, 0.3),
+        ),
+        "pit": MeshPitTerrainCfg(
+            proportion=0.5,
+            pit_depth_range=(0.1, 0.2),
+            platform_width=3.0,
         ),
     },
 )
