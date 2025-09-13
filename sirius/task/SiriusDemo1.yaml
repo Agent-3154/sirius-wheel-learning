@@ -38,12 +38,10 @@ observation:
   command:
     command:
   policy:
-    # root_angvel_b:
-    projected_gravity_b: {noise_std: 0.05}
+    gravity_multistep:   {steps: 3, interval: 2, noise_std: 0.05}
     joint_pos_multistep: {steps: 6, interval: 2, noise_std: 0.05, joint_names: .*_(HAA|HFE|KFE)}
-    # joint_vel_multistep: {steps: 4, noise_std: 0.2, joint_names: .*}
+    joint_vel_multistep: {steps: 3, interval: 1, noise_std: 0.2, joint_names: .*_WHEEL}
     prev_actions: {steps: 2}
-    # sirius_joint_deviation: {}
   priv:
     applied_action:
     applied_torque:
