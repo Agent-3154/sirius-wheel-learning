@@ -59,7 +59,7 @@ class PalletWithPlatformCfg(SubTerrainBaseCfg):
 
 SIRIUS_DEMO = TerrainGeneratorCfg(
     seed=0,
-    size=(5.0, 10.0),
+    size=(8.0, 8.0),
     border_width=65.0,
     num_rows=10,
     num_cols=20,
@@ -68,15 +68,15 @@ SIRIUS_DEMO = TerrainGeneratorCfg(
     slope_threshold=0.75,
     use_cache=False,
     sub_terrains={
-        # "platform_with_slope": PlatformWithSlopeCfg(
-        #     proportion=0.5,
-        #     height_range=(0.1, 0.3),
-        # ),
-        "platform_with_stairs": PlatformWithStairsCfg(
+        "platform_with_slope": PlatformWithSlopeCfg(
             proportion=0.5,
-            step_width_range=(0.15, 0.25),
-            step_height_range=(0.10, 0.15),
+            height_range=(0.1, 0.3),
         ),
+        # "platform_with_stairs": PlatformWithStairsCfg(
+        #     proportion=0.5,
+        #     step_width_range=(0.15, 0.25),
+        #     step_height_range=(0.10, 0.15),
+        # ),
     },
 )
 
