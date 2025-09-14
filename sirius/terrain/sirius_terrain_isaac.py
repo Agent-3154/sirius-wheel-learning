@@ -102,6 +102,11 @@ SIRIUS_ATEC = TerrainGeneratorCfg(
             interval_range=(0.05, 0.1),
             num_stringers=4,
         ),
+        "pit": MeshPitTerrainCfg(
+            proportion=0.5,
+            pit_depth_range=(0.05, 0.15),
+            platform_width=2.0,
+        ),
     },
 )
 

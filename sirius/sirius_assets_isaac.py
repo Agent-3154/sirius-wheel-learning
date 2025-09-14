@@ -101,7 +101,8 @@ SIRIUS_WHEEL_CFG = ArticulationCfg(
 
 SIRIUS_DIFF = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"{ASSET_PATH}/sirius_diff_simplified.usd",
+        usd_path=f"{ASSET_PATH}/sirius_diff_new/sirius_diff_new.usd",
+        # usd_path=f"{ASSET_PATH}/sirius_diff_simplified.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,

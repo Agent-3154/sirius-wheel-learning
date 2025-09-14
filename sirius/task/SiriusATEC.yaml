@@ -9,8 +9,8 @@ viewer:
 
 robot:
   name: sirius_diff
-terrain: plane
-# terrain: sirius_atec
+# terrain: plane
+terrain: sirius_atec
 
 # common
 num_envs: 4096
