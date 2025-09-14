@@ -9,7 +9,7 @@ viewer:
 
 robot:
   name: sirius_wheel
-terrain: plane
+terrain: sirius_demo
 
 # common
 num_envs: 4096
@@ -26,11 +26,11 @@ action:
   wheel_scaling: {.*_WHEEL: 10.0}
 
 command:
-  _target_: active_adaptation.envs.mdp.commands.sirius_demo.SiriusDemoCommand
+  class: SiriusDemoCommand
   homogeneous: false # if `true`, all envs share the same initial state and command
   teleop: false
   transition_prob:
-    - [0.2, 0.8]
+    - [1.0, 0.0]
     - [1.0, 0.0]
 
 observation:

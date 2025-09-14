@@ -26,6 +26,36 @@ def platform_with_slope(size: tuple[float, float], height: float = 0.1):
     return [mesh], origin
 
 
+def platform_with_stairs(
+    size: tuple[float, float],
+    num_steps: int = 5,
+    step_width: float = 0.15,
+    step_height: float = 0.1
+):
+    platform_width = 2.5
+    if num_steps * step_width + platform_width > size[1] / 2:
+        raise ValueError("The platform width is too large for the given number of steps and step width.")
+    
+    meshes = []
+    ground = trimesh.creation.box([size[0], size[1], 0.1])
+    ground.apply_translation([0.0, 0.0, -0.05])
+    meshes.append(ground)
+    for i in range(num_steps):
+        height = (i+1) * step_height
+        box = trimesh.creation.box([size[0], step_width, height])
+        box.apply_translation([0, step_width * i, height / 2])
+        meshes.append(box)
+    platform_width = 2.5
+    platform = trimesh.creation.box([size[0], platform_width, height])
+    platform.apply_translation([0.0, i* step_width + platform_width / 2, height / 2])
+    meshes.append(platform)
+    mesh: trimesh.Trimesh = trimesh.util.concatenate(meshes)
+    mesh.merge_vertices()
+    mesh.apply_translation([size[0] / 2, size[1] / 2, 0.0])
+    origin = np.array([size[0] / 2, size[1] / 4, 0.0])
+    return [mesh], origin
+
+
 def pallet_with_platform(
     size: tuple[float, float],
     platform_width: float,

@@ -15,7 +15,7 @@ import numpy as np
 import random
 
 from dataclasses import MISSING
-from .functional import platform_with_slope, pallet_with_platform
+from .functional import platform_with_slope, pallet_with_platform, platform_with_stairs
 
 registry = Registry.instance()
 
@@ -27,6 +27,18 @@ class PlatformWithSlopeCfg(SubTerrainBaseCfg):
         np.random.uniform(cfg.height_range[0], cfg.height_range[1])
     )
     height_range: tuple[float, float] = (0.1, 0.2)
+
+
+@configclass
+class PlatformWithStairsCfg(SubTerrainBaseCfg):
+    function = lambda difficulty, cfg: platform_with_stairs(
+        cfg.size,
+        num_steps=random.randint(5, 6),
+        step_width=random.uniform(*cfg.step_width_range),
+        step_height=random.uniform(*cfg.step_height_range)
+    )
+    step_width_range: tuple[float, float] = (0.20, 0.30)
+    step_height_range: tuple[float, float] = (0.05, 0.15)
 
 
 @configclass
@@ -47,7 +59,7 @@ class PalletWithPlatformCfg(SubTerrainBaseCfg):
 
 SIRIUS_DEMO = TerrainGeneratorCfg(
     seed=0,
-    size=(8.0, 8.0),
+    size=(5.0, 10.0),
     border_width=65.0,
     num_rows=10,
     num_cols=20,
@@ -56,14 +68,14 @@ SIRIUS_DEMO = TerrainGeneratorCfg(
     slope_threshold=0.75,
     use_cache=False,
     sub_terrains={
-        "platform_with_slope": PlatformWithSlopeCfg(
+        # "platform_with_slope": PlatformWithSlopeCfg(
+        #     proportion=0.5,
+        #     height_range=(0.1, 0.3),
+        # ),
+        "platform_with_stairs": PlatformWithStairsCfg(
             proportion=0.5,
-            height_range=(0.1, 0.3),
-        ),
-        "pit": MeshPitTerrainCfg(
-            proportion=0.5,
-            pit_depth_range=(0.1, 0.2),
-            platform_width=3.0,
+            step_width_range=(0.15, 0.25),
+            step_height_range=(0.10, 0.15),
         ),
     },
 )
