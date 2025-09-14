@@ -59,7 +59,7 @@ def sample_command(
             has_lin_vel = wp.randf(seed_) < lin_vel_prob
             if has_lin_vel:
                 cmd_lin_vel_b[tid] = wp.vec3(
-                    wp.randf(seed_, 1.6, 1.8) * wp.sign(wp.randn(seed_)),
+                    wp.randf(seed_, 0.3, 1.8) * wp.sign(wp.randn(seed_)),
                     wp.randf(seed_, -0.6, 0.6), 0.0)
             else:
                 cmd_lin_vel_b[tid] = wp.vec3(0.0, 0.0, 0.0)

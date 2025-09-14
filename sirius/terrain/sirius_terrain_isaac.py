@@ -72,11 +72,11 @@ SIRIUS_DEMO = TerrainGeneratorCfg(
             proportion=0.5,
             height_range=(0.1, 0.3),
         ),
-        # "platform_with_stairs": PlatformWithStairsCfg(
-        #     proportion=0.5,
-        #     step_width_range=(0.15, 0.25),
-        #     step_height_range=(0.10, 0.15),
-        # ),
+        "platform_with_stairs": PlatformWithStairsCfg(
+            proportion=0.5,
+            step_width_range=(0.20, 0.30),
+            step_height_range=(0.04, 0.10),
+        ),
     },
 )
 

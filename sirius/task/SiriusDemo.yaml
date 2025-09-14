@@ -9,7 +9,7 @@ viewer:
 
 robot:
   name: sirius_wheel
-terrain: plane
+terrain: sirius_demo
 
 # common
 num_envs: 4096
@@ -30,7 +30,7 @@ command:
   homogeneous: false # if `true`, all envs share the same initial state and command
   teleop: false
   transition_prob:
-    - [0.3, 0.7]
+    - [1.0, 0.0]
     - [1.0, 0.0]
 
 observation:
