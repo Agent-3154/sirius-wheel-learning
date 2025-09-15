@@ -33,7 +33,7 @@ class PlatformWithSlopeCfg(SubTerrainBaseCfg):
 class PlatformWithStairsCfg(SubTerrainBaseCfg):
     function = lambda difficulty, cfg: platform_with_stairs(
         cfg.size,
-        num_steps=random.randint(2, 4),
+        num_steps=random.randint(1, 4),
         step_width=random.uniform(*cfg.step_width_range),
         step_height=random.uniform(*cfg.step_height_range)
     )
@@ -72,9 +72,9 @@ SIRIUS_DEMO = TerrainGeneratorCfg(
         #     proportion=0.5,
         #     height_range=(0.1, 0.3),
         # ),
-        "flat": MeshPlaneTerrainCfg(
-            proportion=0.5,
-        ),
+        # "flat": MeshPlaneTerrainCfg(
+        #     proportion=0.5,
+        # ),
         "platform_with_stairs": PlatformWithStairsCfg(
             proportion=0.5,
             step_width_range=(0.20, 0.30),

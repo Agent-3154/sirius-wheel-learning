@@ -43,6 +43,7 @@ def sample_command(
     cmd_time: wp.array(dtype=wp.float32),
     cmd_duration: wp.array(dtype=wp.float32),
     cmd_jump_turn: wp.array(dtype=wp.float32),
+    jump_start_pos_env: wp.array(dtype=wp.vec3),
     seed: wp.int32,
     homogeneous: bool
 ):
@@ -68,7 +69,7 @@ def sample_command(
                     cmd_lin_vel_b[tid].x = - cmd_lin_vel_b[tid].x
                     cmd_duration[tid] = wp.randf(seed_, 1.0, 3.0)
                 else:
-                    cmd_duration[tid] = JUMP_START_Y / cmd_lin_vel_b[tid].x + 0.5
+                    cmd_duration[tid] = (JUMP_START_Y - root_pos_env[tid].y) / cmd_lin_vel_b[tid].x + 0.4
             else:
                 cmd_lin_vel_b[tid] = wp.vec3(0.0, 0.0, 0.0)
                 cmd_duration[tid] = wp.randf(seed_, 1.0, 3.0)
@@ -96,6 +97,7 @@ def sample_command(
                 des_rpy_w[tid] = wp.vec3(0.0, 0.0, heading_w[tid])
             use_yaw_stiffness[tid] = False
             cmd_duration[tid] = air_time + PRE_JUMP_TIME + POST_JUMP_TIME
+            jump_start_pos_env[tid] = root_pos_env[tid]
         cmd_time[tid] = 0.0  # reset time
         mode[tid] = next_mode[tid]
 
@@ -199,6 +201,7 @@ class SiriusDemoCommand(Command):
             self.use_yaw_stiffness = torch.zeros(self.num_envs, 1, dtype=bool)
             
             self.start_pos_w = torch.zeros(self.num_envs, 3)
+            self.jump_start_pos_env = torch.zeros(self.num_envs, 3)
             self.cmd_contact = torch.zeros(self.num_envs, 4)
             self.cmd_time = torch.zeros(self.num_envs, 1)
             self.cmd_duration = torch.zeros(self.num_envs, 1)
@@ -273,6 +276,7 @@ class SiriusDemoCommand(Command):
                 wp.from_torch(self.cmd_time, return_ctype=True),
                 wp.from_torch(self.cmd_duration, return_ctype=True),
                 wp.from_torch(self.cmd_jump_turn, return_ctype=True),
+                wp.from_torch(self.jump_start_pos_env, return_ctype=True),
                 self.seed,
                 self.homogeneous,
             ],
@@ -338,6 +342,16 @@ class SiriusDemoCommand(Command):
         euler = euler_from_quat(self.asset.data.root_quat_w)
         error = wrap_to_pi(self.ref_rpy_w - euler)
         return error
+    
+    @property
+    def ref_ground_height(self):
+        not_landed = (self.cmd_time < self.cmd_duration - POST_JUMP_TIME)
+        ground_height = torch.where(
+            (self.cmd_mode == 1) & not_landed.squeeze(1),
+            self.env.get_ground_height_at(self.jump_start_pos_env + self.start_pos_w),
+            self.env.get_ground_height_at(self.asset.data.root_pos_w)
+        )
+        return ground_height
 
     def update(self):
         heading_wp = wp.from_torch(self.asset.data.heading_w, return_ctype=True)
@@ -408,6 +422,7 @@ class SiriusDemoCommand(Command):
                     wp.from_torch(self.cmd_time, return_ctype=True),
                     wp.from_torch(self.cmd_duration, return_ctype=True),
                     wp.from_torch(self.cmd_jump_turn, return_ctype=True),
+                    wp.from_torch(self.jump_start_pos_env, return_ctype=True),
                     self.env.timestamp,
                     self.homogeneous,
                 ],
@@ -467,7 +482,8 @@ class SiriusDemoCommand(Command):
                 self.asset.data.root_pos_w,
                 self.start_pos_w + torch.tensor([0.0, JUMP_TAKEOFF_Y, 0.5], device=self.device),
             ]) 
-            translations[:self.num_envs, 2:3] = self.cmd_height
+            ground_height = self.ref_ground_height
+            translations[:self.num_envs, 2:3] = self.cmd_height + ground_height.unsqueeze(1)
             orientations = torch.cat([
                 quat_from_euler_xyz(*self.ref_rpy_w.unbind(1)),
                 self.asset.data.root_quat_w,
@@ -558,8 +574,8 @@ class sirius_ang_vel_z(Reward[SiriusDemoCommand]):
 class sirius_base_height(Reward[SiriusDemoCommand]):
     def compute(self) -> torch.Tensor:
         root_pos_w = self.command_manager.asset.data.root_pos_w
-        ground_height = self.env.get_ground_height_at(root_pos_w)
-        root_height = root_pos_w[:, 2] - ground_height
+        
+        root_height = root_pos_w[:, 2] - self.command_manager.ref_ground_height
         error = (self.command_manager.cmd_height - root_height[:, None])
         pre_jump = (self.command_manager.cmd_mode[:, None] ==1) & (self.command_manager.cmd_time < PRE_JUMP_TIME-0.05)
         rew = torch.where(
