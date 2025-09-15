@@ -32,8 +32,8 @@ def platform_with_stairs(
     step_width: float = 0.15,
     step_height: float = 0.1
 ):
-    platform_width = 2.5
-    if num_steps * step_width + platform_width > size[1] / 2:
+    platform_width = size[1] * 0.4 - num_steps * step_width
+    if platform_width < 0:
         raise ValueError("The platform width is too large for the given number of steps and step width.")
     
     meshes = []
@@ -45,7 +45,7 @@ def platform_with_stairs(
         box = trimesh.creation.box([size[0], step_width, height])
         box.apply_translation([0, step_width * i, height / 2])
         meshes.append(box)
-    platform_width = 2.5
+    
     platform = trimesh.creation.box([size[0], platform_width, height])
     platform.apply_translation([0.0, i* step_width + platform_width / 2, height / 2])
     meshes.append(platform)

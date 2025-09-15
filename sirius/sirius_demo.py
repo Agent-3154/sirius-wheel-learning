@@ -19,10 +19,13 @@ PRE_JUMP_TIME = 0.6
 TAKEOFF_TIME = 0.38
 POST_JUMP_TIME = 0.8
 NOMINAL_HEIGHT = 0.5
+JUMP_START_Y = 2 + 4 * 0.3 + 0.3
+JUMP_TAKEOFF_Y = 6.0
 
 
 @wp.kernel(enable_backward=False)
 def sample_command(
+    root_pos_env: wp.array(dtype=wp.vec3),
     quat_w: wp.array(dtype=wp.quatf),
     heading_w: wp.array(dtype=wp.float32),
     lin_vel_w: wp.array(dtype=wp.vec3),
@@ -59,11 +62,16 @@ def sample_command(
             has_lin_vel = wp.randf(seed_) < lin_vel_prob
             if has_lin_vel:
                 cmd_lin_vel_b[tid] = wp.vec3(
-                    wp.randf(seed_, 0.3, 1.8) * wp.sign(wp.randn(seed_)),
+                    wp.randf(seed_, 0.3, 1.8),
                     wp.randf(seed_, -0.6, 0.6), 0.0)
+                if wp.randf(seed_) < 0.4:
+                    cmd_lin_vel_b[tid].x = - cmd_lin_vel_b[tid].x
+                    cmd_duration[tid] = wp.randf(seed_, 1.0, 3.0)
+                else:
+                    cmd_duration[tid] = JUMP_START_Y / cmd_lin_vel_b[tid].x + 0.5
             else:
                 cmd_lin_vel_b[tid] = wp.vec3(0.0, 0.0, 0.0)
-            
+                cmd_duration[tid] = wp.randf(seed_, 1.0, 3.0)
             # yaw command
             des_rpy_w[tid] = wp.vec3(0.0, 0.0, wp.PI / 2.0)
             ref_rpy_w[tid] = wp.vec3(0.0, 0.0, heading_w[tid])
@@ -71,16 +79,9 @@ def sample_command(
             use_yaw_stiffness[tid] = True
             yaw_stiffness[tid] = wp.randf(seed_, 0.5, 1.0)
 
-            cmd_duration[tid] = wp.randf(seed_, 1.0, 3.0)
         if next_mode[tid] == 1:
-            cmd_lin_vel_b[tid] = wp.cw_mul(cmd_lin_vel_b[tid], wp.vec3(1.0, 0.0, 0.0))
-            fast_jump = wp.randf(seed_) < 0.4
-            if fast_jump:
-                x_vel = cmd_lin_vel_b[tid].x
-                x_vel = wp.randf(seed_, 1.6, 2.2) * wp.sign(x_vel)
-            else:
-                x_vel = cmd_lin_vel_b[tid].x
-                x_vel = (wp.abs(x_vel) + wp.randf(seed_, 0.0, 0.4)) * wp.sign(x_vel)
+            x_vel = (JUMP_TAKEOFF_Y - root_pos_env[tid].y) / (PRE_JUMP_TIME + TAKEOFF_TIME)
+            cmd_lin_vel_b[tid].x = x_vel
             cmd_lin_vel_w[tid] = wp.quat_rotate(quat_w[tid], cmd_lin_vel_b[tid])
             use_lin_vel_w[tid] = True
             # cmd_lin_vel_b will be updated by `step_command`
@@ -197,6 +198,7 @@ class SiriusDemoCommand(Command):
             self.yaw_stiffness  = torch.zeros(self.num_envs, 1)
             self.use_yaw_stiffness = torch.zeros(self.num_envs, 1, dtype=bool)
             
+            self.start_pos_w = torch.zeros(self.num_envs, 3)
             self.cmd_contact = torch.zeros(self.num_envs, 4)
             self.cmd_time = torch.zeros(self.num_envs, 1)
             self.cmd_duration = torch.zeros(self.num_envs, 1)
@@ -242,6 +244,8 @@ class SiriusDemoCommand(Command):
         self.seed = wp.rand_init(0)
 
     def reset(self, env_ids: torch.Tensor):
+        self.start_pos_w[env_ids] = self.asset.data.root_pos_w[env_ids]
+        self.root_pos_env = self.asset.data.root_pos_w - self.start_pos_w
         resample = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         resample[env_ids] = True
         next_mode = torch.zeros(self.num_envs, dtype=torch.int32, device=self.device)
@@ -249,6 +253,7 @@ class SiriusDemoCommand(Command):
             sample_command,
             dim=self.num_envs,
             inputs=[
+                wp.from_torch(self.root_pos_env, return_ctype=True),
                 wp.from_torch(self.asset.data.root_quat_w.roll(-1, dims=1), return_ctype=True),
                 wp.from_torch(self.asset.data.heading_w, return_ctype=True),
                 wp.from_torch(self.asset.data.root_lin_vel_w, return_ctype=True),
@@ -339,6 +344,7 @@ class SiriusDemoCommand(Command):
         error = (self.asset.data.joint_pos[:, self.joint_ids] - self.default_hip_jpos).abs()
         self.cum_hip_deviation = torch.where(error < 0.1, 0., self.cum_hip_deviation + error * self.env.step_dt)
         self.in_contact = self.contact_sensor.data.current_contact_time[:, self.wheel_ids_contact] > 0.0
+        self.root_pos_env = self.asset.data.root_pos_w - self.start_pos_w
 
         if self.teleop:
             self.gamepad.update()
@@ -373,14 +379,16 @@ class SiriusDemoCommand(Command):
                 c2 = torch.rand(self.num_envs, device=self.device) < 0.5
             c3 = (self.cmd_time > self.cmd_duration).squeeze(1)
             resample = (c1 & c2 & c3) | c3
-            next_mode_prob = self.transition_prob[self.cmd_mode.long()]
-            next_mode = next_mode_prob.multinomial(1, replacement=True).squeeze(-1)
-            if self.homogeneous:
-                next_mode = next_mode[0].expand_as(next_mode)
+            # next_mode_prob = self.transition_prob[self.cmd_mode.long()]
+            # next_mode = next_mode_prob.multinomial(1, replacement=True).squeeze(-1)
+            # if self.homogeneous:
+            #     next_mode = next_mode[0].expand_as(next_mode)
+            next_mode = torch.where(self.root_pos_env[:, 1] > JUMP_START_Y, 1, 0)
             wp.launch(
                 sample_command,
                 dim=self.num_envs,
                 inputs=[
+                    wp.from_torch(self.root_pos_env, return_ctype=True),
                     wp.from_torch(self.asset.data.root_quat_w.roll(-1, dims=1), return_ctype=True),
                     heading_wp,
                     wp.from_torch(self.asset.data.root_lin_vel_w, return_ctype=True),
@@ -454,17 +462,22 @@ class SiriusDemoCommand(Command):
 
     def debug_draw(self):
         if self.env.sim.has_gui() and self.env.backend == "isaac":
-            translations = torch.cat([self.asset.data.root_pos_w, self.asset.data.root_pos_w]) 
+            translations = torch.cat([
+                self.asset.data.root_pos_w,
+                self.asset.data.root_pos_w,
+                self.start_pos_w + torch.tensor([0.0, JUMP_TAKEOFF_Y, 0.5], device=self.device),
+            ]) 
             translations[:self.num_envs, 2:3] = self.cmd_height
             orientations = torch.cat([
                 quat_from_euler_xyz(*self.ref_rpy_w.unbind(1)),
+                self.asset.data.root_quat_w,
                 self.asset.data.root_quat_w,
             ])
             self.frame_marker.visualize(
                 translations=translations + torch.tensor([0., 0., 0.2], device=self.device),
                 orientations=orientations,
-                scales=torch.tensor([4.0, 1.0, 0.1]).expand(2 * self.num_envs, 3),
-                marker_indices=[0] * self.num_envs + [1] * self.num_envs
+                scales=torch.tensor([4.0, 1.0, 0.1]).expand_as(translations),
+                marker_indices=[0] * self.num_envs + [1] * self.num_envs + [1] * self.num_envs
             )
             self.env.debug_draw.vector(
                 self.asset.data.root_pos_w
