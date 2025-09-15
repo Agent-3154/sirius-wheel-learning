@@ -30,7 +30,7 @@ command:
   homogeneous: false # if `true`, all envs share the same initial state and command
   teleop: false
   transition_prob:
-    - [1.0, 0.0]
+    - [0.3, 0.7]
     - [1.0, 0.0]
 
 observation:

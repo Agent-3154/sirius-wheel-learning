@@ -3,6 +3,7 @@ import warp as wp
 
 from active_adaptation.envs.mdp.base import Command, Reward, Observation, Termination
 from active_adaptation.utils.math import (
+    clamp_norm,
     quat_rotate,
     quat_rotate_inverse,
     quat_mul,
@@ -30,7 +31,7 @@ def sample_command(
     heading_w: wp.array(dtype=wp.float32),
     lin_vel_w: wp.array(dtype=wp.vec3),
     cmd_lin_vel_w: wp.array(dtype=wp.vec3),
-    cmd_lin_vel_b: wp.array(dtype=wp.vec3),
+    des_lin_vel_b: wp.array(dtype=wp.vec3),
     use_lin_vel_w: wp.array(dtype=wp.bool),
     des_rpy_w: wp.array(dtype=wp.vec3),
     ref_rpy_w: wp.array(dtype=wp.vec3),
@@ -62,31 +63,36 @@ def sample_command(
             use_lin_vel_w[tid] = False
             has_lin_vel = wp.randf(seed_) < lin_vel_prob
             if has_lin_vel:
-                cmd_lin_vel_b[tid] = wp.vec3(
-                    wp.randf(seed_, 0.3, 1.8),
-                    wp.randf(seed_, -0.6, 0.6), 0.0)
-                if wp.randf(seed_) < 0.4:
-                    cmd_lin_vel_b[tid].x = - cmd_lin_vel_b[tid].x
-                    cmd_duration[tid] = wp.randf(seed_, 1.0, 3.0)
+                des_lin_vel_b[tid] = wp.vec3(wp.randf(seed_, 0.3, 1.8), wp.randf(seed_, -0.6, 0.6), 0.0)
+                if root_pos_env[tid].y < JUMP_START_Y:
+                    cmd_duration[tid] = (JUMP_START_Y - root_pos_env[tid].y) / des_lin_vel_b[tid].x + 0.4
                 else:
-                    cmd_duration[tid] = (JUMP_START_Y - root_pos_env[tid].y) / cmd_lin_vel_b[tid].x + 0.4
+                    if wp.randf(seed_) < 0.4:
+                        des_lin_vel_b[tid].x = - des_lin_vel_b[tid].x
+                    cmd_duration[tid] = wp.randf(seed_, 1.0, 2.0)
             else:
-                cmd_lin_vel_b[tid] = wp.vec3(0.0, 0.0, 0.0)
+                des_lin_vel_b[tid] = wp.vec3(0.0, 0.0, 0.0)
                 cmd_duration[tid] = wp.randf(seed_, 1.0, 3.0)
             # yaw command
-            des_rpy_w[tid] = wp.vec3(0.0, 0.0, wp.PI / 2.0)
+            if root_pos_env[tid].y < JUMP_START_Y:
+                des_rpy_w[tid] = wp.vec3(0.0, 0.0, wp.PI / 2.0)
+            else:
+                des_rpy_w[tid] = wp.vec3(0.0, 0.0, wp.randf(seed_, 0.0, 2.0 * wp.PI))
             ref_rpy_w[tid] = wp.vec3(0.0, 0.0, heading_w[tid])
             ref_ang_vel_w[tid] = wp.vec3(0.0, 0.0, 0.0)
             use_yaw_stiffness[tid] = True
             yaw_stiffness[tid] = wp.randf(seed_, 0.5, 1.0)
 
         if next_mode[tid] == 1:
-            x_vel = (JUMP_TAKEOFF_Y - root_pos_env[tid].y) / (PRE_JUMP_TIME + TAKEOFF_TIME)
-            cmd_lin_vel_b[tid].x = x_vel
-            cmd_lin_vel_w[tid] = wp.quat_rotate(quat_w[tid], cmd_lin_vel_b[tid])
+            if root_pos_env[tid].y < JUMP_TAKEOFF_Y:
+                x_vel = (JUMP_TAKEOFF_Y - root_pos_env[tid].y) / (PRE_JUMP_TIME + TAKEOFF_TIME)
+                des_lin_vel_b[tid] = wp.vec3(x_vel, 0.0, 0.0)
+            else:
+                des_lin_vel_b[tid] = wp.cw_mul(des_lin_vel_b[tid], wp.vec3(1.0, 0.0, 0.0))
+            cmd_lin_vel_w[tid] = wp.quat_rotate(quat_w[tid], des_lin_vel_b[tid])
             use_lin_vel_w[tid] = True
             # cmd_lin_vel_b will be updated by `step_command`
-            turn = wp.randf(seed_) < 0.0
+            turn = wp.randf(seed_) < 0.6
             if turn:
                 air_time = wp.randf(seed_, 0.9, 1.0) # more time to turn
                 cmd_jump_turn[tid] = wp.PI
@@ -151,7 +157,7 @@ def step_command(
             ref_ang_vel_w[tid].z = 0.0
         elif time < PRE_JUMP_TIME + TAKEOFF_TIME:
             ref_acc = 0.1 + 30.0 * (time - PRE_JUMP_TIME)
-            ref_acc = wp.clamp(ref_acc, 0.0, 13.0)
+            ref_acc = wp.clamp(ref_acc, 0.0, 12.0)
             ref_vel = ref_vel + ref_acc * 0.02
             ref_hei = ref_hei + ref_vel * 0.02
             ref_ang_vel_w[tid].z = cmd_jump_turn[tid] / air_time
@@ -189,6 +195,7 @@ class SiriusDemoCommand(Command):
 
         with torch.device(self.device):
             self.cmd_lin_vel_w = torch.zeros(self.num_envs, 3)
+            self.des_lin_vel_b = torch.zeros(self.num_envs, 3)
             self.cmd_lin_vel_b = torch.zeros(self.num_envs, 3)
             self.use_lin_vel_w = torch.zeros(self.num_envs, 1, dtype=bool)
             self.cmd_height = torch.zeros(self.num_envs, 1)
@@ -261,7 +268,7 @@ class SiriusDemoCommand(Command):
                 wp.from_torch(self.asset.data.heading_w, return_ctype=True),
                 wp.from_torch(self.asset.data.root_lin_vel_w, return_ctype=True),
                 wp.from_torch(self.cmd_lin_vel_w, return_ctype=True),
-                wp.from_torch(self.cmd_lin_vel_b, return_ctype=True),
+                wp.from_torch(self.des_lin_vel_b, return_ctype=True),
                 wp.from_torch(self.use_lin_vel_w, return_ctype=True),
                 # orientation command
                 wp.from_torch(self.des_rpy_w, return_ctype=True),
@@ -393,12 +400,11 @@ class SiriusDemoCommand(Command):
                 c2 = torch.rand(self.num_envs, device=self.device) < 0.5
             c3 = (self.cmd_time > self.cmd_duration).squeeze(1)
             resample = (c1 & c2 & c3) | c3
-            # next_mode_prob = self.transition_prob[self.cmd_mode.long()]
-            # next_mode = next_mode_prob.multinomial(1, replacement=True).squeeze(-1)
+            next_mode_prob = self.transition_prob[self.cmd_mode.long()]
+            next_mode = next_mode_prob.multinomial(1, replacement=True).squeeze(-1)
             # if self.homogeneous:
             #     next_mode = next_mode[0].expand_as(next_mode)
-            next_mode = torch.where(self.root_pos_env[:, 1] > JUMP_START_Y, 1, 0)
-            next_mode = torch.where(self.cmd_mode == 1, 0, next_mode)
+            next_mode = torch.where((self.root_pos_env[:, 1] > JUMP_START_Y) & (self.root_pos_env[:, 1] < JUMP_TAKEOFF_Y), 1, next_mode)
             wp.launch(
                 sample_command,
                 dim=self.num_envs,
@@ -408,7 +414,7 @@ class SiriusDemoCommand(Command):
                     heading_wp,
                     wp.from_torch(self.asset.data.root_lin_vel_w, return_ctype=True),
                     wp.from_torch(self.cmd_lin_vel_w, return_ctype=True),
-                    wp.from_torch(self.cmd_lin_vel_b, return_ctype=True),
+                    wp.from_torch(self.des_lin_vel_b, return_ctype=True),
                     wp.from_torch(self.use_lin_vel_w, return_ctype=True),
                     # orientation command
                     wp.from_torch(self.des_rpy_w, return_ctype=True),
@@ -456,6 +462,7 @@ class SiriusDemoCommand(Command):
             ],
             device=self.device.type,
         )
+        self.cmd_lin_vel_b = self.cmd_lin_vel_b + clamp_norm(0.2 * (self.des_lin_vel_b - self.cmd_lin_vel_b), 0.0, 0.15)
         self.is_standing_env = self.obs_cmd_lin_vel_b.norm(dim=-1, keepdim=True) < 0.1
 
     @property
