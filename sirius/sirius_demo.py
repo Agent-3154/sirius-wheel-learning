@@ -86,7 +86,7 @@ def sample_command(
             cmd_lin_vel_w[tid] = wp.quat_rotate(quat_w[tid], cmd_lin_vel_b[tid])
             use_lin_vel_w[tid] = True
             # cmd_lin_vel_b will be updated by `step_command`
-            turn = wp.randf(seed_) < 0.5
+            turn = wp.randf(seed_) < 0.0
             if turn:
                 air_time = wp.randf(seed_, 0.9, 1.0) # more time to turn
                 cmd_jump_turn[tid] = wp.PI
@@ -398,6 +398,7 @@ class SiriusDemoCommand(Command):
             # if self.homogeneous:
             #     next_mode = next_mode[0].expand_as(next_mode)
             next_mode = torch.where(self.root_pos_env[:, 1] > JUMP_START_Y, 1, 0)
+            next_mode = torch.where(self.cmd_mode == 1, 0, next_mode)
             wp.launch(
                 sample_command,
                 dim=self.num_envs,
