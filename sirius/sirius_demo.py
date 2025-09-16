@@ -49,7 +49,7 @@ def sample_command(
     homogeneous: bool
 ):
     lin_vel_prob = 0.9
-    yaw_stiffness_prob = 0.6
+    yaw_stiffness_prob = 0.5
 
     tid = wp.tid()
     if homogeneous:
@@ -62,6 +62,8 @@ def sample_command(
             cmd_lin_vel_w[tid] = wp.vec3(0.0, 0.0, 0.0)
             use_lin_vel_w[tid] = False
             has_lin_vel = wp.randf(seed_) < lin_vel_prob
+            use_yaw_stiffness[tid] = wp.randf(seed_) < yaw_stiffness_prob
+
             if has_lin_vel:
                 des_lin_vel_b[tid] = wp.vec3(wp.randf(seed_, 0.3, 1.8), wp.randf(seed_, -0.6, 0.6), 0.0)
                 if root_pos_env[tid].y < JUMP_START_Y:
@@ -69,19 +71,22 @@ def sample_command(
                 else:
                     if wp.randf(seed_) < 0.4:
                         des_lin_vel_b[tid].x = - des_lin_vel_b[tid].x
-                    cmd_duration[tid] = wp.randf(seed_, 1.0, 2.0)
+                    cmd_duration[tid] = wp.randf(seed_, 1.0, 3.0)
             else:
                 des_lin_vel_b[tid] = wp.vec3(0.0, 0.0, 0.0)
                 cmd_duration[tid] = wp.randf(seed_, 1.0, 3.0)
             # yaw command
             if root_pos_env[tid].y < JUMP_START_Y:
+                use_yaw_stiffness[tid] = True
                 des_rpy_w[tid] = wp.vec3(0.0, 0.0, wp.PI / 2.0)
             else:
                 des_rpy_w[tid] = wp.vec3(0.0, 0.0, wp.randf(seed_, 0.0, 2.0 * wp.PI))
             ref_rpy_w[tid] = wp.vec3(0.0, 0.0, heading_w[tid])
-            ref_ang_vel_w[tid] = wp.vec3(0.0, 0.0, 0.0)
-            use_yaw_stiffness[tid] = True
-            yaw_stiffness[tid] = wp.randf(seed_, 0.5, 1.0)
+            if use_yaw_stiffness[tid]:
+                ref_ang_vel_w[tid] = wp.vec3(0.0, 0.0, 0.0)
+                yaw_stiffness[tid] = wp.randf(seed_, 0.5, 1.0)
+            else:
+                ref_ang_vel_w[tid] = wp.vec3(0.0, 0.0, wp.randf(seed_, -2.0, 2.0))
 
         if next_mode[tid] == 1:
             if root_pos_env[tid].y < JUMP_TAKEOFF_Y:
@@ -402,9 +407,9 @@ class SiriusDemoCommand(Command):
             resample = (c1 & c2 & c3) | c3
             next_mode_prob = self.transition_prob[self.cmd_mode.long()]
             next_mode = next_mode_prob.multinomial(1, replacement=True).squeeze(-1)
-            # if self.homogeneous:
-            #     next_mode = next_mode[0].expand_as(next_mode)
-            next_mode = torch.where((self.root_pos_env[:, 1] > JUMP_START_Y) & (self.root_pos_env[:, 1] < JUMP_TAKEOFF_Y), 1, next_mode)
+            
+            next_mode = torch.where((self.root_pos_env[:, 1] < JUMP_START_Y), 0, next_mode)
+            next_mode = torch.where((self.root_pos_env[:, 1] > JUMP_START_Y + 0.1) & (self.root_pos_env[:, 1] < JUMP_TAKEOFF_Y), 1, next_mode)
             wp.launch(
                 sample_command,
                 dim=self.num_envs,

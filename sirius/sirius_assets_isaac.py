@@ -58,9 +58,9 @@ SIRIUS_WHEEL_CFG = ArticulationCfg(
             },
             velocity_limit_sim=80.,
             stiffness={
-                ".*_HAA": 30.,
-                ".*_HFE": 30.,
-                ".*_KFE": 30.,
+                ".*_HAA": 40.,
+                ".*_HFE": 40.,
+                ".*_KFE": 40.,
                 ".*_WHEEL": 0.
             },
             damping={
