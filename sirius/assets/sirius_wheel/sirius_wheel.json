@@ -91,9 +91,9 @@
             },
             "velocity_limit_sim": 40.0,
             "stiffness": {
-                ".*_HAA": 30.0,
-                ".*_HFE": 30.0,
-                ".*_KFE": 30.0,
+                ".*_HAA": 40.0,
+                ".*_HFE": 40.0,
+                ".*_KFE": 40.0,
                 ".*_WHEEL": 0.0
             },
             "damping": {

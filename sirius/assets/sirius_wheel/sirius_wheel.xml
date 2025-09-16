@@ -66,8 +66,8 @@
             <body name="RF_FOOT" pos="-0.01 -0.07825 -0.29973" quat="0.000563312 -0.000562864 0.706825 -0.707388">
               <inertial pos="0 0 -0.015388" quat="0.5 0.5 -0.5 0.5" mass="0.75" diaginertia="0.00477466 0.00254403 0.00254403"/>
               <joint name="RF_WHEEL" pos="0 0 0" axis="0 0 -1" range="-17453.3 17453.3" actuatorfrcrange="-45 45" frictionloss="0.01"/>
-              <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="1 0.423529 0.0392157 1" mesh="wheel_link"/>
-              <geom size="0.10025 0.025" pos="0 0 -0.024" type="cylinder" rgba="1 0.423529 0.0392157 1"/>
+              <geom type="mesh" group="1" rgba="1 0.423529 0.0392157 1" mesh="wheel_link"/>
+              <!-- <geom size="0.10025 0.025" pos="0 0 -0.024" type="cylinder" rgba="1 0.423529 0.0392157 1"/> -->
             </body>
           </body>
         </body>
@@ -93,8 +93,8 @@
             <body name="LF_FOOT" pos="-0.01 0.07825 -0.29973" quat="0.707388 -0.706825 0 0">
               <inertial pos="0 0 -0.015388" quat="0.5 0.5 -0.5 0.5" mass="0.75" diaginertia="0.00477466 0.00254403 0.00254403"/>
               <joint name="LF_WHEEL" pos="0 0 0" axis="0 0 1" range="-17453.3 17453.3" actuatorfrcrange="-45 45" frictionloss="0.01"/>
-              <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="1 0.423529 0.0392157 1" mesh="wheel_link"/>
-              <geom size="0.10025 0.025" pos="0 0 -0.024" type="cylinder" rgba="1 0.423529 0.0392157 1"/>
+              <geom type="mesh" group="1" rgba="1 0.423529 0.0392157 1" mesh="wheel_link"/>
+              <!-- <geom size="0.10025 0.025" pos="0 0 -0.024" type="cylinder" rgba="1 0.423529 0.0392157 1"/> -->
             </body>
           </body>
         </body>
@@ -120,8 +120,8 @@
             <body name="RH_FOOT" pos="0.01 -0.07825 -0.29973" quat="0.000563312 -0.000562864 0.706825 -0.707388">
               <inertial pos="0 0 -0.015388" quat="0.5 0.5 -0.5 0.5" mass="0.75" diaginertia="0.00477466 0.00254403 0.00254403"/>
               <joint name="RH_WHEEL" pos="0 0 0" axis="0 0 -1" range="-17453.3 17453.3" actuatorfrcrange="-45 45" frictionloss="0.01"/>
-              <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="1 0.423529 0.0392157 1" mesh="wheel_link"/>
-              <geom size="0.10025 0.025" pos="0 0 -0.024" type="cylinder" rgba="1 0.423529 0.0392157 1"/>
+              <geom type="mesh" group="1" rgba="1 0.423529 0.0392157 1" mesh="wheel_link"/>
+              <!-- <geom size="0.10025 0.025" pos="0 0 -0.024" type="cylinder" rgba="1 0.423529 0.0392157 1"/> -->
             </body>
           </body>
         </body>
@@ -147,8 +147,8 @@
             <body name="LH_FOOT" pos="0.01 0.07825 -0.29973" quat="0.707388 -0.706825 0 0">
               <inertial pos="0 0 -0.015388" quat="0.5 0.5 -0.5 0.5" mass="0.75" diaginertia="0.00477466 0.00254403 0.00254403"/>
               <joint name="LH_WHEEL" pos="0 0 0" axis="0 0 1" range="-17453.3 17453.3" actuatorfrcrange="-45 45" frictionloss="0.01"/>
-              <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="1 0.423529 0.0392157 1" mesh="wheel_link"/>
-              <geom size="0.10025 0.025" pos="0 0 -0.024" type="cylinder" rgba="1 0.423529 0.0392157 1"/>
+              <geom type="mesh" group="1" rgba="1 0.423529 0.0392157 1" mesh="wheel_link"/>
+              <!-- <geom size="0.10025 0.025" pos="0 0 -0.024" type="cylinder" rgba="1 0.423529 0.0392157 1"/> -->
             </body>
           </body>
         </body>

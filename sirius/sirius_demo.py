@@ -259,7 +259,6 @@ class SiriusDemoCommand(Command):
         self.seed = wp.rand_init(0)
 
     def reset(self, env_ids: torch.Tensor):
-        self.start_pos_w[env_ids] = self.asset.data.root_pos_w[env_ids]
         self.root_pos_env = self.asset.data.root_pos_w - self.start_pos_w
         resample = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         resample[env_ids] = True
@@ -313,6 +312,7 @@ class SiriusDemoCommand(Command):
             quat = quat[0:1].expand(len(env_ids), -1)
         init_root_state[:, :3] += pos_w
         init_root_state[:, 3:7] = quat_mul(init_root_state[:, 3:7], quat)
+        self.start_pos_w[env_ids] = init_root_state[:, :3]
         return init_root_state
         
     @property
@@ -633,14 +633,23 @@ class sirius_jump_behave(Reward[SiriusDemoCommand]):
         self.asset = self.command_manager.asset
         self.foot_ids = self.asset.find_bodies(".*_FOOT")[0]
 
+    # def compute(self) -> torch.Tensor:
+    #     is_active = (
+    #         (self.command_manager.cmd_mode[:, None] == 1)
+    #         & (self.command_manager.cmd_time > PRE_JUMP_TIME + TAKEOFF_TIME)
+    #         & (self.command_manager.cmd_time < PRE_JUMP_TIME + TAKEOFF_TIME + 0.3)
+    #     )
+    #     rew = self.asset.data.body_pos_w[:, self.foot_ids, 2].min(dim=1).values
+    #     return rew.reshape(self.num_envs, 1), is_active.reshape(self.num_envs, 1)
     def compute(self) -> torch.Tensor:
-        is_active = (
-            (self.command_manager.cmd_mode[:, None] == 1)
-            & (self.command_manager.cmd_time > PRE_JUMP_TIME + TAKEOFF_TIME)
-            & (self.command_manager.cmd_time < PRE_JUMP_TIME + TAKEOFF_TIME + 0.3)
+        feet_pos_w = self.asset.data.body_pos_w[:, self.foot_ids]
+        feet_pos_b = quat_rotate_inverse(
+            self.asset.data.root_quat_w.unsqueeze(1),
+            feet_pos_w - self.asset.data.root_pos_w.unsqueeze(1)
         )
-        rew = self.asset.data.body_pos_w[:, self.foot_ids, 2].min(dim=1).values
-        return rew.reshape(self.num_envs, 1), is_active.reshape(self.num_envs, 1)
+        is_active = ((self.command_manager.cmd_mode[:, None] == 1) & (self.command_manager.cmd_time < PRE_JUMP_TIME))
+        rew = (0.45 - feet_pos_b[:, :, 0].abs()).clamp_max(0.0).sum(1, True)
+        return rew, is_active.reshape(self.num_envs, 1)
 
 
 class sirius_jump_turning(Reward[SiriusDemoCommand]):
