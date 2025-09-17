@@ -187,8 +187,7 @@ SIRIUS_WHEEL2_CFG = ArticulationCfg(
 
 SIRIUS_DIFF = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path=f"{ASSET_PATH}/sirius_diff_new/sirius_diff_new.usd",
-        # usd_path=f"{ASSET_PATH}/sirius_diff_simplified.usd",
+        usd_path=f"{ASSET_PATH}/ly-mid-p-0916/ly-mid-p-0916.usd",
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
@@ -215,8 +214,8 @@ SIRIUS_DIFF = ArticulationCfg(
             ".*_HAA": 0.,
             "[L,R]F_HFE":  0.4,
             "[L,R]H_HFE": -0.4,
-            "[L,R]F_KFE": -1.2,
-            "[L,R]H_KFE":  1.2,
+            "[L,R]F_KNEE": -1.2,
+            "[L,R]H_KNEE":  1.2,
         },
         joint_vel={".*": 0.}
     ),
@@ -229,12 +228,12 @@ SIRIUS_DIFF = ArticulationCfg(
             stiffness={
                 ".*_HAA": 40.,
                 ".*_HFE": 40.,
-                ".*_KFE": 40.,
+                ".*_KNEE": 40.,
             },
             damping={
                 ".*_HAA": 2.,
                 ".*_HFE": 2.,
-                ".*_KFE": 2.,
+                ".*_KNEE": 2.,
             },
             armature=0.01,
             friction=0.01
@@ -245,8 +244,8 @@ SIRIUS_DIFF = ArticulationCfg(
         "LH_HAA": (-1, "RH_HAA"),
         "LF_HFE": (1, "RF_HFE"),
         "LH_HFE": (1, "RH_HFE"),
-        "LF_KFE": (1, "RF_KFE"),
-        "LH_KFE": (1, "RH_KFE")
+        "LF_KNEE": (1, "RF_KNEE"),
+        "LH_KNEE": (1, "RH_KNEE")
     }),
     spatial_symmetry_mapping=mirrored({
         "trunk": "trunk",

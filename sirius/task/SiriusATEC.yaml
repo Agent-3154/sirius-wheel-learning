@@ -23,7 +23,7 @@ sim:
 
 action:
   _target_: active_adaptation.envs.mdp.action.JointPosition
-  action_scaling: {.*_(HAA|HFE|KFE): 0.6}
+  action_scaling: {.*_(HAA|HFE|KNEE): 0.6}
   max_delay: 1
   alpha: [0.6, 0.9]
 
@@ -68,7 +68,7 @@ reward:
 
 termination:
   # crash_leg(crash): {body_names_expr: [".*thigh", ".*calf"], t_thres: 0.02}
-  crash_body(crash): {body_names_expr: ["base", ".*hip"], t_thres: 0.02}
+  crash_body(crash): {body_names_expr: ["(base|trunk)", ".*hip"], t_thres: 0.02}
   fall_over: {xy_thres: 0.9}
 
 randomization:
@@ -85,15 +85,15 @@ randomization:
     stiffness_range:  
       .*_HAA: [0.8, 1.2]
       .*_HFE: [0.8, 1.2]
-      .*_KFE: [0.8, 1.2]
+      .*_KNEE: [0.8, 1.2]
     damping_range:
       .*_HAA: [0.8, 1.2]
       .*_HFE: [0.8, 1.2]
-      .*_KFE: [0.8, 1.2]
+      .*_KNEE: [0.8, 1.2]
     scale_factor_range:
       .*_HAA: [0.9, 1.1]
       .*_HFE: [0.9, 1.1]
-      .*_KFE: [0.9, 1.1]
+      .*_KNEE: [0.9, 1.1]
     armature_range:
       .*: [0.0, 0.0]
   reset_joint_states_scale:

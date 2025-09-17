@@ -9,6 +9,7 @@ from isaaclab.terrains import (
     HfRandomUniformTerrainCfg,
     MeshPitTerrainCfg,
     MeshInvertedPyramidStairsTerrainCfg,
+    MeshGapTerrainCfg,
 )
 from isaaclab.utils import configclass
 import isaaclab.sim as sim_utils
@@ -96,28 +97,33 @@ SIRIUS_ATEC = TerrainGeneratorCfg(
     slope_threshold=0.75,
     use_cache=False,
     sub_terrains={
-        "plane": MeshPlaneTerrainCfg(
-            proportion=0.5,
-        ),
+        # "plane": MeshPlaneTerrainCfg(
+        #     proportion=0.5,
+        # ),
         "pallet_with_platform": PalletWithPlatformCfg(
             proportion=0.5,
             platform_width=2.0,
             board_width_range=(0.1, 0.2),
-            interval_range=(0.05, 0.15),
+            interval_range=(0.10, 0.20),
             num_stringers=4,
         ),
-        "pit": MeshPitTerrainCfg(
+        "gap": MeshGapTerrainCfg(
             proportion=0.5,
-            pit_depth_range=(0.05, 0.15),
-            platform_width=2.0,
+            gap_width_range=(0.20, 0.40),
+            platform_width=4.0,
         ),
-        "pyramid_stairs_inv": MeshInvertedPyramidStairsTerrainCfg(
-            proportion=0.5,
-            step_height_range=(0.05, 0.15),
-            step_width=0.35,
-            platform_width=2.0,
-            border_width=1.0,
-        ),
+        # "pit": MeshPitTerrainCfg(
+        #     proportion=0.5,
+        #     pit_depth_range=(0.05, 0.15),
+        #     platform_width=2.0,
+        # ),
+        # "pyramid_stairs_inv": MeshInvertedPyramidStairsTerrainCfg(
+        #     proportion=0.5,
+        #     step_height_range=(0.05, 0.15),
+        #     step_width=0.35,
+        #     platform_width=2.0,
+        #     border_width=1.0,
+        # ),
     },
 )
 
