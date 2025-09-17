@@ -701,7 +701,7 @@ class sirius_walk_behave(Reward[SiriusDemoCommand]):
         is_active = self.command_manager.cmd_mode[:, None] == 0
         rew_hip_dev = - self.command_manager.cum_hip_deviation.square().sum(1, True)
         rew_roll_dev = - self.command_manager.euler_error[:, 0:1].abs()
-        return rew_roll_dev, is_active
+        return rew_roll_dev + rew_hip_dev, is_active
 
     def debug_draw(self):
         body_pos_w = self.asset.data.body_pos_w[:, self.body_ids]
