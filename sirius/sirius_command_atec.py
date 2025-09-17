@@ -78,7 +78,7 @@ class SiriusATECCommand(Command):
     def update(self):
         diff = self.target_pos_w - self.asset.data.root_pos_w
         self.target_pos_w = torch.where(
-            diff.norm(dim=-1, keepdim=True) < 0.1,
+            diff[:, :2].norm(dim=-1, keepdim=True) < 0.15,
             self.asset.data.root_pos_w + torch.tensor([2.0, 0.0, 0.0], device=self.device),
             self.target_pos_w
         )
