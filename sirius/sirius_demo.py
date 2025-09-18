@@ -649,7 +649,27 @@ class sirius_jump_behave(Reward[SiriusDemoCommand]):
         )
         is_active = ((self.command_manager.cmd_mode[:, None] == 1) & (self.command_manager.cmd_time < PRE_JUMP_TIME))
         rew = (0.45 - feet_pos_b[:, :, 0].abs()).clamp_max(0.0).sum(1, True)
-        return rew, is_active.reshape(self.num_envs, 1)
+        return rew * 0.0, is_active.reshape(self.num_envs, 1)
+
+
+class sirius_feet_placement(Reward[SiriusDemoCommand]):
+    def __init__(self, env, weight: float):
+        super().__init__(env, weight)
+        self.asset = self.command_manager.asset
+        self.foot_ids = self.asset.find_bodies(".*_FOOT")[0]
+
+    def update(self):
+        self.feet_pos_w = self.asset.data.body_pos_w[:, self.foot_ids]
+        self.root_quat_w = self.asset.data.root_quat_w
+        self.root_pos_w = self.asset.data.root_pos_w
+    
+    def compute(self) -> torch.Tensor:
+        feet_pos_b = quat_rotate_inverse(
+            self.root_quat_w.unsqueeze(1),
+            self.feet_pos_w - self.root_pos_w.unsqueeze(1)
+        )
+        rew = (0.45 - feet_pos_b[:, :, 0].abs()).clamp_max(0.0).sum(1, True)
+        return rew.reshape(self.num_envs, 1)
 
 
 class sirius_jump_turning(Reward[SiriusDemoCommand]):
