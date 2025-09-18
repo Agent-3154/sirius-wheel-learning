@@ -1,0 +1,160 @@
+<mujoco model="ly-mid-w-0915B">
+  <compiler angle="radian" meshdir="meshes"/>
+
+  <option iterations="50" timestep="0.002" solver="PGS" gravity="0 0 -9.81" />
+
+  <default>
+    <joint damping="0.2" armature="0.01" frictionloss="0.01" />
+  </default>
+
+  <asset>
+    <mesh name="base_link" content_type="model/stl" file="base_link.STL"/>
+    <mesh name="LF_ABAD_Link" content_type="model/stl" file="LF_ABAD_Link.STL"/>
+    <mesh name="LF_THIGH_Link" content_type="model/stl" file="LF_THIGH_Link.STL"/>
+    <mesh name="LF_SHANK_Link" content_type="model/stl" file="LF_SHANK_Link.STL"/>
+    <mesh name="LF_FOOT_Link" content_type="model/stl" file="LF_FOOT_Link.STL"/>
+    <mesh name="RF_ABAD_Link" content_type="model/stl" file="RF_ABAD_Link.STL"/>
+    <mesh name="RF_THIGH_Link" content_type="model/stl" file="RF_THIGH_Link.STL"/>
+    <mesh name="RF_SHANK_Link" content_type="model/stl" file="RF_SHANK_Link.STL"/>
+    <mesh name="RF_FOOT_Link" content_type="model/stl" file="RF_FOOT_Link.STL"/>
+    <mesh name="LH_ABAD_Link" content_type="model/stl" file="LH_ABAD_Link.STL"/>
+    <mesh name="LH_THIGH_Link" content_type="model/stl" file="LH_THIGH_Link.STL"/>
+    <mesh name="LH_SHANK_Link" content_type="model/stl" file="LH_SHANK_Link.STL"/>
+    <mesh name="LH_FOOT_Link" content_type="model/stl" file="LH_FOOT_Link.STL"/>
+    <mesh name="RH_ABAD_Link" content_type="model/stl" file="RH_ABAD_Link.STL"/>
+    <mesh name="RH_THIGH_Link" content_type="model/stl" file="RH_THIGH_Link.STL"/>
+    <mesh name="RH_SHANK_Link" content_type="model/stl" file="RH_SHANK_Link.STL"/>
+    <mesh name="RH_FOOT_Link" content_type="model/stl" file="RH_FOOT_Link.STL"/>
+  </asset>
+
+  <worldbody>
+    <light pos="0 0 1.5" dir="0 0 -1" directional="true"/>  
+    <body name="base">
+      <inertial pos="0.00771202 -2.38069e-06 0.00294617" quat="1.00163e-05 0.70184 1.85912e-05 0.712335" mass="21.5552" diaginertia="0.962219 0.890231 0.122532"/>
+      <joint name="floating_base_joint" type="free"/>
+      <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="base_link"/>
+      <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="base_link"/>
+      <geom size="0.0005 0.0005 0.0005" pos="0.0043 -0.02 0.0414" type="box" contype="0" conaffinity="0" group="1" density="0"/>
+      <geom size="0.0005 0.0005 0.0005" pos="0.0043 -0.02 0.0414" type="box"/>
+      <body name="LF_hip" pos="0.3154 0.05 0">
+        <inertial pos="-1.38221e-06 0.0119998 -3.78509e-06" quat="-0.000589927 0.707109 -0.000527551 0.707104" mass="0.778654" diaginertia="0.00121131 0.000960298 0.00087971"/>
+        <joint name="LF_HAA" pos="0 0 0" axis="1 0 0" range="-1.57 1.57" actuatorfrcrange="-40 40"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="LF_ABAD_Link"/>
+        <!-- <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="LF_ABAD_Link"/> -->
+        <body name="LF_thigh" pos="0 0.1388 0">
+          <inertial pos="-0.00412085 -0.0352419 -0.029079" quat="0.875057 0.115204 -0.00185057 0.470105" mass="2.10667" diaginertia="0.0136968 0.013538 0.00268849"/>
+          <joint name="LF_HFE" pos="0 0 0" axis="0 1 0" range="-1.04 4.18" actuatorfrcrange="-40 40"/>
+          <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="LF_THIGH_Link"/>
+          <!-- <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="LF_THIGH_Link"/> -->
+          <body name="LF_calf" pos="0 0 -0.272">
+            <inertial pos="0.00690866 0.0384609 -0.310503" quat="0.84516 0.0943631 -0.0225429 0.525635" mass="1.26483" diaginertia="0.0162686 0.0158352 0.00130706"/>
+            <joint name="LF_KFE" pos="0 0 0" axis="0 1 0" range="-2.73 -0.74" actuatorfrcrange="-100 100"/>
+            <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="LF_SHANK_Link"/>
+            <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="LF_SHANK_Link"/>
+            <body name="LF_FOOT" pos="0 0.0889282 -0.365367" quat="1 -3.81917e-05 -5.98325e-10 1.56664e-05">
+              <inertial pos="4.11893e-09 -0.016568 -6.73453e-10" quat="0.5 0.5 0.5 0.5" mass="0.750197" diaginertia="0.00508244 0.00268749 0.00268749"/>
+              <joint name="LF_WHEEL" pos="0 0 0" axis="0 1 0" range="-17453.3 17453.3" actuatorfrcrange="-40 40"/>
+              <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="LF_FOOT_Link"/>
+              <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="LF_FOOT_Link"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="RF_hip" pos="0.3154 -0.05 0">
+        <inertial pos="-2.01943e-06 -0.0119999 -3.7868e-06" quat="0.000596564 0.707104 0.000520837 0.707109" mass="0.778648" diaginertia="0.00121131 0.000960297 0.000879709"/>
+        <joint name="RF_HAA" pos="0 0 0" axis="1 0 0" range="-1.57 1.57" actuatorfrcrange="-40 40"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="RF_ABAD_Link"/>
+        <!-- <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="RF_ABAD_Link"/> -->
+        <body name="RF_thigh" pos="0 -0.1388 0">
+          <inertial pos="-0.00412079 0.0352397 -0.029084" quat="0.469884 -0.00183031 0.11521 0.875176" mass="2.10685" diaginertia="0.0136982 0.0135394 0.00268877"/>
+          <joint name="RF_HFE" pos="0 0 0" axis="0 1 0" range="-1.04 4.18" actuatorfrcrange="-40 40"/>
+          <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="RF_THIGH_Link"/>
+          <!-- <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="RF_THIGH_Link"/> -->
+          <body name="RF_calf" pos="0 0 -0.272">
+            <inertial pos="0.00691056 -0.0384575 -0.310502" quat="0.525419 -0.0225167 0.0943718 0.845294" mass="1.26478" diaginertia="0.0162682 0.0158354 0.00130658"/>
+            <joint name="RF_KFE" pos="0 0 0" axis="0 1 0" range="-2.73 -0.74" actuatorfrcrange="-100 100"/>
+            <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="RF_SHANK_Link"/>
+            <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="RF_SHANK_Link"/>
+            <body name="RF_FOOT" pos="0 -0.0889282 -0.365367" quat="1 3.81916e-05 -5.98329e-10 -1.56665e-05">
+              <inertial pos="-4.11892e-09 0.016568 -6.73453e-10" quat="0.5 0.5 0.5 0.5" mass="0.750197" diaginertia="0.00508244 0.00268749 0.00268749"/>
+              <joint name="RF_WHEEL" pos="0 0 0" axis="0 1 0" range="-17453.3 17453.3" actuatorfrcrange="-40 40"/>
+              <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="RF_FOOT_Link"/>
+              <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="RF_FOOT_Link"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="LH_hip" pos="-0.3155 0.05 0">
+        <inertial pos="-1.36846e-06 0.0119998 -3.78369e-06" quat="-0.000590709 0.707109 -0.000526824 0.707104" mass="0.778654" diaginertia="0.00121131 0.000960298 0.00087971"/>
+        <joint name="LH_HAA" pos="0 0 0" axis="1 0 0" range="-1.57 1.57" actuatorfrcrange="-40 40"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="LH_ABAD_Link"/>
+        <!-- <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="LH_ABAD_Link"/> -->
+        <body name="LH_thigh" pos="0 0.1388 0">
+          <inertial pos="0.0041208 -0.0352397 -0.029084" quat="0.469884 0.00183043 -0.11521 0.875175" mass="2.10685" diaginertia="0.0136982 0.0135394 0.00268877"/>
+          <joint name="LH_HFE" pos="0 0 0" axis="0 1 0" range="-4.18 1.04" actuatorfrcrange="-40 40"/>
+          <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="LH_THIGH_Link"/>
+          <!-- <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="LH_THIGH_Link"/> -->
+          <body name="LH_calf" pos="0 0 -0.272">
+            <inertial pos="-0.00690497 0.0384556 -0.310503" quat="0.525543 0.0225509 -0.0943693 0.845216" mass="1.26487" diaginertia="0.0162685 0.0158352 0.0013072"/>
+            <joint name="LH_KFE" pos="0 0 0" axis="0 1 0" range="0.74 2.73" actuatorfrcrange="-100 100"/>
+            <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="LH_SHANK_Link"/>
+            <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="LH_SHANK_Link"/>
+            <body name="LH_FOOT" pos="0 0.0889282 -0.365367" quat="1 -3.81916e-05 5.98329e-10 -1.56665e-05">
+              <inertial pos="4.11892e-09 -0.016568 -6.73454e-10" quat="0.5 0.5 0.5 0.5" mass="0.750197" diaginertia="0.00508244 0.00268749 0.00268749"/>
+              <joint name="LH_WHEEL" pos="0 0 0" axis="0 1 0" range="-17453.3 17453.3" actuatorfrcrange="-40 40"/>
+              <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="LH_FOOT_Link"/>
+              <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="LH_FOOT_Link"/>
+            </body>
+          </body>
+        </body>
+      </body>
+      <body name="RH_hip" pos="-0.3155 -0.05 0">
+        <inertial pos="-2.03304e-06 -0.0119999 -3.78531e-06" quat="0.000595832 0.707104 0.000521638 0.707109" mass="0.778648" diaginertia="0.00121131 0.000960297 0.000879709"/>
+        <joint name="RH_HAA" pos="0 0 0" axis="1 0 0" range="-1.57 1.57" actuatorfrcrange="-40 40"/>
+        <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="RH_ABAD_Link"/>
+        <!-- <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="RH_ABAD_Link"/> -->
+        <body name="RH_thigh" pos="0 -0.1388 0">
+          <inertial pos="0.00412085 0.0352419 -0.0290789" quat="0.875062 -0.115203 0.00184915 0.470097" mass="2.10668" diaginertia="0.0136968 0.0135381 0.0026885"/>
+          <joint name="RH_HFE" pos="0 0 0" axis="0 1 0" range="-4.18 1.04" actuatorfrcrange="-40 40"/>
+          <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="RH_THIGH_Link"/>
+          <!-- <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="RH_THIGH_Link"/> -->
+          <body name="RH_calf" pos="0 0 -0.272">
+            <inertial pos="-0.00690864 -0.0384609 -0.310502" quat="0.845161 -0.0943635 0.0225414 0.525633" mass="1.26483" diaginertia="0.0162686 0.0158352 0.00130705"/>
+            <joint name="RH_KFE" pos="0 0 0" axis="0 1 0" range="0.74 2.73" actuatorfrcrange="-100 100"/>
+            <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="RH_SHANK_Link"/>
+            <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="RH_SHANK_Link"/>
+            <body name="RH_FOOT" pos="0 -0.0889282 -0.365367" quat="1 3.81917e-05 5.98325e-10 1.56664e-05">
+              <inertial pos="-4.11893e-09 0.016568 -6.73453e-10" quat="0.5 0.5 0.5 0.5" mass="0.750197" diaginertia="0.00508244 0.00268749 0.00268749"/>
+              <joint name="RH_WHEEL" pos="0 0 0" axis="0 1 0" range="-17453.3 17453.3" actuatorfrcrange="-40 40"/>
+              <geom type="mesh" contype="0" conaffinity="0" group="1" density="0" rgba="0.698039 0.698039 0.698039 1" mesh="RH_FOOT_Link"/>
+              <geom type="mesh" rgba="0.698039 0.698039 0.698039 1" mesh="RH_FOOT_Link"/>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <actuator>
+    <motor name="RF_HAA" joint="RF_HAA" ctrlrange="-40 40"/>
+    <motor name="RF_HFE" joint="RF_HFE" ctrlrange="-40 40"/>
+    <motor name="RF_KFE" joint="RF_KFE" ctrlrange="-100 100"/>
+    <motor name="RF_WHEEL" joint="RF_WHEEL" ctrlrange="-40 40"/>
+
+    <motor name="LF_HAA" joint="LF_HAA" ctrlrange="-40 40"/>
+    <motor name="LF_HFE" joint="LF_HFE" ctrlrange="-40 40"/>
+    <motor name="LF_KFE" joint="LF_KFE" ctrlrange="-100 100"/>
+    <motor name="LF_WHEEL" joint="LF_WHEEL" ctrlrange="-40 40"/>
+    
+    <motor name="RH_HAA" joint="RH_HAA" ctrlrange="-40 40"/>
+    <motor name="RH_HFE" joint="RH_HFE" ctrlrange="-40 40"/>
+    <motor name="RH_KFE" joint="RH_KFE" ctrlrange="-100 100"/>
+    <motor name="RH_WHEEL" joint="RH_WHEEL" ctrlrange="-40 40"/>
+    
+    <motor name="LH_HAA" joint="LH_HAA" ctrlrange="-40 40"/>
+    <motor name="LH_HFE" joint="LH_HFE" ctrlrange="-40 40"/>
+    <motor name="LH_KFE" joint="LH_KFE" ctrlrange="-100 100"/>
+    <motor name="LH_WHEEL" joint="LH_WHEEL" ctrlrange="-40 40"/>
+      
+  </actuator>
+</mujoco>

@@ -37,4 +37,32 @@ SIRIUS_WHEEL_CFG = MJArticulationCfg(
     })
 )
 
+
+SIRIUS_WHEEL2_CFG = MJArticulationCfg(
+    mjcf_path=str(ASSET_PATH/ "sirius_wheel_new" / "ly-mid-w-0915B.xml"),
+    **json.load(open(ASSET_PATH/ "sirius_wheel_new" / "ly-mid-w-0915B.json")),
+    joint_symmetry_mapping=symmetry_utils.mirrored({
+        "LF_HAA": (-1, "RF_HAA"),
+        "LH_HAA": (-1, "RH_HAA"),
+        "LF_HFE": (1, "RF_HFE"),
+        "LH_HFE": (1, "RH_HFE"),
+        "LF_KFE": (1, "RF_KFE"),
+        "LH_KFE": (1, "RH_KFE"),
+        "LF_WHEEL": (1, "RF_WHEEL"),
+        "LH_WHEEL": (1, "RH_WHEEL"),
+    }),
+    spatial_symmetry_mapping=symmetry_utils.mirrored({
+        "base": "base",
+        "LF_hip": "RF_hip",
+        "LH_hip": "RH_hip",
+        "LF_calf": "RF_calf",
+        "LH_calf": "RH_calf",
+        "LF_thigh": "RF_thigh",
+        "LH_thigh": "RH_thigh",
+        "LF_FOOT": "RF_FOOT",
+        "LH_FOOT": "RH_FOOT",
+    })
+)
+
 registry.register("asset", "sirius_wheel", SIRIUS_WHEEL_CFG)
+registry.register("asset", "sirius_wheel2", SIRIUS_WHEEL2_CFG)

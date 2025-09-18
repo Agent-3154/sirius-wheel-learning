@@ -84,7 +84,7 @@ reward:
     sirius_feet_placement: {weight: 2.0}
     survival:           {weight: 1.0}
   contact_reg:
-    lateral_swing_height: {weight: 2.0, feet_names: .*_FOOT}
+    lateral_swing_height: {weight: 1.0, feet_names: .*_FOOT, target_height: 0.20}
     undesired_contact:  {body_names: ["(trunk|base)", ".*(hip|thigh|calf)"], weight: 0.25}
     wheel_contact_direction: {weight: 0.5}
     feet_air_time:      {weight: 0.4, body_names: .*_FOOT, thres: 0.4}
