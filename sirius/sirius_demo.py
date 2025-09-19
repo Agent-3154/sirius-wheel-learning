@@ -88,10 +88,10 @@ def sample_command(
                 des_rpy_w[tid] = wp.vec3(0.0, 0.0, wp.randf(seed_, 0.0, 2.0 * wp.PI))
             ref_rpy_w[tid] = wp.vec3(0.0, 0.0, heading_w[tid])
             if use_yaw_stiffness[tid]:
-                ref_ang_vel_w[tid] = wp.vec3(0.0, 0.0, 0.0)
-                yaw_stiffness[tid] = wp.randf(seed_, 0.5, 1.0)
+                ref_ang_vel_w[tid].z = 0.0
+                yaw_stiffness[tid] = wp.randf(seed_, 0.5, 1.4)
             else:
-                ref_ang_vel_w[tid] = wp.vec3(0.0, 0.0, wp.randf(seed_, -2.0, 2.0))
+                ref_ang_vel_w[tid].z = wp.randf(seed_, 0.5, 2.2) * wp.sign(wp.randn(seed_))
 
         if next_mode[tid] == 1:
             if root_pos_env[tid].y < JUMP_TAKEOFF_Y:
@@ -129,6 +129,7 @@ def step_command(
     des_rpy_w: wp.array(dtype=wp.vec3),
     ref_rpy_w: wp.array(dtype=wp.vec3),
     ref_ang_vel_w: wp.array(dtype=wp.vec3),
+    cmd_ang_vel_w: wp.array(dtype=wp.vec3),
     yaw_stiffness: wp.array(dtype=wp.float32),
     use_yaw_stiffness: wp.array(dtype=wp.bool),
     # jump command
@@ -150,9 +151,14 @@ def step_command(
             cond = (cum_hip_deviation[tid][i] > swing_thres[tid]) and in_contact[tid]
             cmd_contact[tid][i] = wp.where(cond, -1.0, 0.0)
         if use_yaw_stiffness[tid]:
-            yaw_error = (des_rpy_w[tid].z - ref_rpy_w[tid].z)
-            yaw_error = (yaw_error + wp.PI) % (2.0 * wp.PI) - wp.PI
-            ref_ang_vel_w[tid].z = wp.clamp(yaw_stiffness[tid] * yaw_error, -2.0, 2.0)
+            ref_yaw_error = (des_rpy_w[tid].z - ref_rpy_w[tid].z)
+            ref_yaw_error = (ref_yaw_error + wp.PI) % (2.0 * wp.PI) - wp.PI
+            ref_ang_vel_w[tid].z = wp.clamp(yaw_stiffness[tid] * ref_yaw_error, -2.0, 2.0)
+            cmd_yaw_error = (des_rpy_w[tid].z - heading_w[tid])
+            cmd_yaw_error = (cmd_yaw_error + wp.PI) % (2.0 * wp.PI) - wp.PI
+            cmd_ang_vel_w[tid].z = wp.clamp(yaw_stiffness[tid] * cmd_yaw_error, -2.0, 2.0)
+        else:
+            cmd_ang_vel_w[tid].z = ref_ang_vel_w[tid].z
         cmd_in_air[tid] = False
     elif mode[tid] == 1:  # jump
         air_time = cmd_duration[tid] - PRE_JUMP_TIME - POST_JUMP_TIME
@@ -189,7 +195,7 @@ def step_command(
         cmd_jump_ref[tid] = wp.vec2(ref_hei, ref_vel)
         cmd_height[tid] = ref_hei
         cmd_lin_vel_w[tid].z = ref_vel
-        
+        cmd_ang_vel_w[tid].z = ref_ang_vel_w[tid].z
     ref_rpy_w[tid] += ref_ang_vel_w[tid] * 0.02
     cmd_time[tid] += 0.02
 
@@ -212,6 +218,7 @@ class SiriusDemoCommand(Command):
             
             # orientation command
             self.ref_ang_vel_w  = torch.zeros(self.num_envs, 3)
+            self.cmd_ang_vel_w  = torch.zeros(self.num_envs, 3)
             self.ref_rpy_w      = torch.zeros(self.num_envs, 3)
             self.des_rpy_w      = torch.zeros(self.num_envs, 3)
             self.yaw_stiffness  = torch.zeros(self.num_envs, 1)
@@ -327,7 +334,7 @@ class SiriusDemoCommand(Command):
         result = torch.cat(
             [
                 self.obs_cmd_lin_vel_b,
-                self.ref_ang_vel_w,
+                self.cmd_ang_vel_w,
                 cmd_rpy_b,
                 torch.where(self.cmd_mode[:, None] == 1, self.cmd_time, torch.zeros_like(self.cmd_time)),
                 torch.where(self.cmd_mode[:, None] == 1, self.cmd_duration - self.cmd_time, torch.zeros_like(self.cmd_time)),
@@ -458,6 +465,7 @@ class SiriusDemoCommand(Command):
                 wp.from_torch(self.des_rpy_w, return_ctype=True),
                 wp.from_torch(self.ref_rpy_w, return_ctype=True),
                 wp.from_torch(self.ref_ang_vel_w, return_ctype=True),
+                wp.from_torch(self.cmd_ang_vel_w, return_ctype=True),
                 wp.from_torch(self.yaw_stiffness, return_ctype=True),
                 wp.from_torch(self.use_yaw_stiffness, return_ctype=True),
                 # jump command
@@ -472,7 +480,7 @@ class SiriusDemoCommand(Command):
             ],
             device=self.device.type,
         )
-        self.cmd_lin_vel_b = self.cmd_lin_vel_b + clamp_norm(0.2 * (self.des_lin_vel_b - self.cmd_lin_vel_b), 0.0, 0.15)
+        self.cmd_lin_vel_b = self.cmd_lin_vel_b + clamp_norm(0.2 * (self.des_lin_vel_b - self.cmd_lin_vel_b), 0.0, 0.1)
         self.is_standing_env = self.obs_cmd_lin_vel_b.norm(dim=-1, keepdim=True) < 0.1
 
     @property
