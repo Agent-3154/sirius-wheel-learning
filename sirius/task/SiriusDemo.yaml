@@ -68,14 +68,13 @@ reward:
     sirius_jump_turning:  {weight: 10.0}
     sirius_jump_behave:   {weight: 2.0}
     sirius_land_behave:   {weight: 0.5}
-    sirius_walk_behave:   {weight: 0.4}
+    sirius_walk_behave:   {weight: 1.0}
     angvel_xy_l2:         {weight: 0.005}
     _eval_: "lambda a,b,c,d,e,f,g,h,i,j,k: (a+b+c+d+e+f)*a*e*f+g+h+i+j+k"
   joint_reg:
     _compile_: true
     energy_l1:          {weight: 0.0001}
     joint_acc_l2:       {weight: 2.5e-7, joint_names: .*_(HAA|HFE|KFE)}
-    # joint_deviation_l2: {weight: 0.1, joint_names: .*HAA}
     joint_vel_l2:       {weight: 0.002, joint_names: .*_(HAA|HFE|KFE)}
     joint_vel_limits:   {weight: 0.4, joint_names: .*_(HAA|HFE|KFE), factor: 0.4}
     # joint_tau_limits:   {weight: 0.4, joint_names: .*_(HAA|HFE|KFE), factor: 0.8}
@@ -88,7 +87,6 @@ reward:
     undesired_contact:  {body_names: ["(trunk|base)", ".*(hip|thigh|calf)"], weight: 0.25}
     wheel_contact_direction: {weight: 0.5}
     feet_air_time:      {weight: 0.4, body_names: .*_FOOT, thres: 0.4}
-    # max_feet_height:    {weight: 2.0, body_names: .*_FOOT, target_height: 0.2}
     feet_sliding:       {weight: 0.5, body_names: .*_FOOT}
     sirius_feet_swing:  {weight: 2.0}
   # safety:

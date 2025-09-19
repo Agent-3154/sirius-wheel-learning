@@ -76,7 +76,7 @@ def sample_command(
                 else:
                     if wp.randf(seed_) < 0.4:
                         des_lin_vel_b[tid].x = - des_lin_vel_b[tid].x
-                    cmd_duration[tid] = wp.randf(seed_, 1.0, 3.0)
+                    cmd_duration[tid] = wp.randf(seed_, 1.0, 4.0)
             else:
                 des_lin_vel_b[tid] = wp.vec3(0.0, 0.0, 0.0)
                 cmd_duration[tid] = wp.randf(seed_, 1.0, 3.0)
@@ -654,7 +654,7 @@ class sirius_jump_behave(Reward[SiriusDemoCommand]):
         )
         is_active = ((self.command_manager.cmd_mode[:, None] == 1) & (self.command_manager.cmd_time < PRE_JUMP_TIME))
         rew = (0.45 - feet_pos_b[:, :, 0].abs()).clamp_max(0.0).sum(1, True)
-        return rew * 0.0, is_active.reshape(self.num_envs, 1)
+        return rew, is_active.reshape(self.num_envs, 1)
 
 
 class sirius_feet_placement(Reward[SiriusDemoCommand]):
@@ -743,10 +743,14 @@ class sirius_feet_swing(Reward[SiriusDemoCommand]):
         # self.command_manager = self.env.command_manager
     
     def compute(self) -> torch.Tensor:
-        is_active = (self.command_manager.cmd_mode[:, None] == 0)
+        is_active = (self.command_manager.cmd_mode == 0)
+        has_ang_vel = (self.command_manager.ref_ang_vel_w[:, 2].abs() > 0.1)
+        has_lin_vel = (self.command_manager.cmd_lin_vel_b[:, 1].abs() > 0.1)
+        is_active = is_active & has_ang_vel & has_lin_vel
+
         feet_contact = self.contact_forces.data.net_forces_w_history[:, :, self.foot_ids]
         in_contact = (feet_contact.norm(dim=-1) > 0.2).any(dim=1)
-        rew = in_contact.sum(1) == 2
+        rew = (in_contact.sum(1) == 2).float()
         return rew.reshape(self.num_envs, 1), is_active.reshape(self.num_envs, 1)
 
 
