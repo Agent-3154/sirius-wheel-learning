@@ -743,10 +743,11 @@ class sirius_feet_swing(Reward[SiriusDemoCommand]):
         # self.command_manager = self.env.command_manager
     
     def compute(self) -> torch.Tensor:
+        is_active = (self.command_manager.cmd_mode[:, None] == 0)
         feet_contact = self.contact_forces.data.net_forces_w_history[:, :, self.foot_ids]
         in_contact = (feet_contact.norm(dim=-1) > 0.2).any(dim=1)
         rew = in_contact.sum(1) == 2
-        return rew.reshape(self.num_envs, 1)
+        return rew.reshape(self.num_envs, 1), is_active.reshape(self.num_envs, 1)
 
 
 class wheel_contact_direction(Reward[SiriusDemoCommand]):
