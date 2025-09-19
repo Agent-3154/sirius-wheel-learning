@@ -70,7 +70,8 @@ def sample_command(
             use_yaw_stiffness[tid] = wp.randf(seed_) < yaw_stiffness_prob
 
             if has_lin_vel:
-                des_lin_vel_b[tid] = wp.vec3(wp.randf(seed_, 0.3, 1.8), wp.randf(seed_, -0.6, 0.6), 0.0)
+                des_lin_vel_b[tid].x = wp.randf(seed_, 0.30, 1.80)
+                des_lin_vel_b[tid].y = wp.randf(seed_, 0.12, 0.60) * wp.sign(wp.randn(seed_))
                 if root_pos_env[tid].y < JUMP_START_Y:
                     cmd_duration[tid] = (JUMP_START_Y - root_pos_env[tid].y) / des_lin_vel_b[tid].x + 0.4
                 else:
