@@ -14,6 +14,11 @@ from active_adaptation.utils.math import (
     yaw_quat,
 )
 from active_adaptation.utils.symmetry import SymmetryTransform, joint_space_symmetry
+from typing_extensions import TYPE_CHECKING
+
+
+if TYPE_CHECKING:
+    from isaaclab.sensors import ContactSensor
 
 
 PRE_JUMP_TIME = 0.6
@@ -728,6 +733,20 @@ class sirius_walk_behave(Reward[SiriusDemoCommand]):
         vec = torch.zeros_like(body_pos_w)
         vec[:, :, 2] = self.command_manager.cum_hip_deviation
         self.env.debug_draw.vector(body_pos_w, vec, size=2.0, color=(1., 0., 0., 1.))
+
+
+class sirius_feet_swing(Reward[SiriusDemoCommand]):
+    def __init__(self, env, weight: float):
+        super().__init__(env, weight)
+        self.contact_forces: ContactSensor = self.env.scene["contact_forces"]
+        self.foot_ids = self.contact_forces.find_bodies(".*_FOOT")[0]
+        # self.command_manager = self.env.command_manager
+    
+    def compute(self) -> torch.Tensor:
+        feet_contact = self.contact_forces.data.net_forces_w_history[:, :, self.foot_ids]
+        in_contact = (feet_contact.norm(dim=-1) > 0.2).any(dim=1)
+        rew = in_contact.sum(1) == 2
+        return rew.reshape(self.num_envs, 1)
 
 
 class wheel_contact_direction(Reward[SiriusDemoCommand]):
