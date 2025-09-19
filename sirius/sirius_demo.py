@@ -332,15 +332,18 @@ class SiriusDemoCommand(Command):
     def command(self):
         cmd_rpy_b = self.ref_rpy_w.clone()
         cmd_rpy_b[:, 2] = wrap_to_pi(cmd_rpy_b[:, 2] - self.asset.data.heading_w)
+        obs_cmd_lin_vel_b = self.obs_cmd_lin_vel_b
+        cmd_ang_vel_w = self.cmd_ang_vel_w
         result = torch.cat(
             [
-                self.obs_cmd_lin_vel_b,
-                self.cmd_ang_vel_w,
+                obs_cmd_lin_vel_b,
+                cmd_ang_vel_w,
                 cmd_rpy_b,
                 torch.where(self.cmd_mode[:, None] == 1, self.cmd_time, torch.zeros_like(self.cmd_time)),
                 torch.where(self.cmd_mode[:, None] == 1, self.cmd_duration - self.cmd_time, torch.zeros_like(self.cmd_time)),
                 torch.nn.functional.one_hot(self.cmd_mode.long(), num_classes=2),
-                # self.cmd_contact,
+                obs_cmd_lin_vel_b[:, 1, None].abs() < 0.1,
+                cmd_ang_vel_w[:, 2, None].abs() < 0.1,
             ],
             dim=1,
         )
@@ -354,6 +357,7 @@ class SiriusDemoCommand(Command):
                 SymmetryTransform(perm=torch.arange(3), signs=torch.tensor([-1, 1, -1])),  # flip yaw,
                 SymmetryTransform(perm=torch.arange(2), signs=torch.ones(2)), # phase: do nothing
                 SymmetryTransform(perm=torch.arange(2), signs=torch.ones(2)), # cmd_mode: do nothing
+                SymmetryTransform(perm=torch.arange(2), signs=torch.ones(2)), # indicators: do nothing
                 # SymmetryTransform(perm=torch.tensor([2, 3, 0, 1]), signs=torch.ones(4)) # cmd_contact: flip left and right
             ]
         )
@@ -712,7 +716,7 @@ class sirius_land_behave(Reward[SiriusDemoCommand]):
     def __init__(self, env, weight: float):
         super().__init__(env, weight)
         self.asset = self.command_manager.asset
-        self.joint_ids = self.asset.find_joints(".*(HFE|KFE)")[0]
+        self.joint_ids = self.asset.find_joints(".*(HAA|HFE|KFE)")[0]
         self.default_jpos = self.asset.data.default_joint_pos[:, self.joint_ids]
     
     def update(self):

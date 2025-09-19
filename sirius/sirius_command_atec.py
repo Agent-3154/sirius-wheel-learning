@@ -32,6 +32,7 @@ class SiriusATECCommand(Command):
 
         with torch.device(self.device):
             self.target_pos_w = torch.zeros(self.num_envs, 3)
+            self.target_vel_w = torch.zeros(self.num_envs, 3)
             self.target_yaw_w = torch.zeros(self.num_envs, 3)
 
             subterrain_size = torch.tensor(self.env.scene.terrain.cfg.terrain_generator.size)
@@ -42,6 +43,9 @@ class SiriusATECCommand(Command):
             ])
             self.adjacent_offsets = subterrain_size * adjacent_directions
             self.is_standing_env = torch.zeros(self.num_envs, 1, dtype=bool)
+            
+            self.ref_pos_w = torch.zeros(self.num_envs, 3)
+            self.cum_error = torch.zeros(self.num_envs, 1)
     
     def sample_init(self, env_ids: torch.Tensor) -> torch.Tensor:
         init_root_state = self.init_root_state[env_ids]
@@ -61,7 +65,8 @@ class SiriusATECCommand(Command):
     def command(self):
         target_pos_b = quat_rotate_inverse(
             yaw_quat(self.asset.data.root_quat_w),
-            self.target_pos_w - self.asset.data.root_pos_w
+            # self.target_pos_w - self.asset.data.root_pos_w
+            self.target_vel_w
         )
         target_yaw = wrap_to_pi(torch.pi / 2 - self.asset.data.heading_w)
         return torch.cat([target_pos_b[:, :2], target_yaw[:, None]], dim=-1)
@@ -73,20 +78,29 @@ class SiriusATECCommand(Command):
         )
 
     def reset(self, env_ids: torch.Tensor) -> None:
-        self.target_pos_w[env_ids] = self.asset.data.root_pos_w[env_ids] + torch.tensor([2.0, 0.0, 0.0], device=self.device)
+        self.target_pos_w[env_ids] = self.asset.data.root_pos_w[env_ids] + torch.tensor([3.0, 0.0, 0.0], device=self.device)
+        self.ref_pos_w[env_ids] = self.asset.data.root_pos_w[env_ids]
 
     def update(self):
-        diff = self.target_pos_w - self.asset.data.root_pos_w
+        self.root_pos_w = self.asset.data.root_pos_w
+        self.ref_pos_w.add_(self.target_vel_w * self.env.step_dt)
+        self.cum_error = (self.ref_pos_w - self.root_pos_w)[:, :2].norm(dim=-1, keepdim=True)
+
+        # step command
         self.target_pos_w = torch.where(
-            diff[:, :2].norm(dim=-1, keepdim=True) < 0.15,
-            self.asset.data.root_pos_w + torch.tensor([2.0, 0.0, 0.0], device=self.device),
+            (self.target_pos_w - self.asset.data.root_pos_w)[:, :2].norm(dim=-1, keepdim=True) < 0.15,
+            self.asset.data.root_pos_w + torch.tensor([3.0, 0.0, 0.0], device=self.device),
             self.target_pos_w
         )
+        diff = (self.target_pos_w - self.asset.data.root_pos_w)[:, :2]
+        self.target_vel_w[:, :2] = clamp_norm(0.5 * diff, 0.0, 1.2)
     
     def debug_draw(self):
         self.env.debug_draw.vector(
             self.asset.data.root_pos_w,
-            self.target_pos_w - self.asset.data.root_pos_w,
+            # self.target_pos_w - self.asset.data.root_pos_w,
+            # self.target_vel_w,
+            self.ref_pos_w - self.root_pos_w,
             color=(1.0, 0.0, 0.0, 1.0),
         )
 
@@ -96,10 +110,14 @@ class sirius_atec_vel(Reward[SiriusATECCommand]):
         super().__init__(env, weight)
         self.asset = self.command_manager.asset
     
+    def update(self):
+        self.root_lin_vel_w = self.asset.data.root_lin_vel_w
+        self.root_lin_vel_b = self.asset.data.root_lin_vel_b
+
     def compute(self) -> torch.Tensor:
-        target_direction = normalize(self.command_manager.target_pos_w - self.asset.data.root_pos_w)
-        rew = torch.sum(self.asset.data.root_lin_vel_w * target_direction, dim=-1, keepdim=True)
-        rew = rew.clamp_max(1.5)
+        error = (self.command_manager.target_vel_w - self.root_lin_vel_w)[:, :2]
+        error = error.square().sum(dim=-1, keepdim=True)
+        rew = torch.exp(- error / 0.25)
         return rew.reshape(self.num_envs, 1)
 
 

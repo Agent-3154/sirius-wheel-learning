@@ -125,7 +125,8 @@ SIRIUS_WHEEL2_CFG = ArticulationCfg(
     init_state=ArticulationCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.6),
         joint_pos={
-            ".*_HAA": 0.,
+            "L[F,H]_HAA": 0.1,
+            "R[F,H]_HAA": -0.1,
             "[L,R]F_HFE":  0.95,
             "[L,R]H_HFE": -0.95,
             "[L,R]F_KFE": -1.6,
@@ -141,7 +142,7 @@ SIRIUS_WHEEL2_CFG = ArticulationCfg(
             effort_limit_sim={
                 ".*_HAA": 50.,
                 ".*_HFE": 50.,
-                ".*_KFE": 80.,
+                ".*_KFE": 100.,
                 ".*_WHEEL": 80.
             },
             velocity_limit_sim=80.,
