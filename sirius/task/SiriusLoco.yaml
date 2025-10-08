@@ -45,6 +45,7 @@ observation:
     projected_gravity_b: {noise_std: 0.05}
     joint_pos_multistep: {steps: 4, noise_std: 0.05}
     joint_vel_multistep: {steps: 4, noise_std: 0.2}
+    body_height:         {body_names: .*_FOOT}
     prev_actions: {steps: 3}
   terrain_:
     height_scan: {x_range: [-1.2, 1.2], y_range: [-1.0, 1.0], x_resolution: 0.2, y_resolution: 0.2}
@@ -53,10 +54,11 @@ reward:
   loco:
     linvel_exp:         {weight: 1.5, enabled: true, dim: 2, gamma: 0.8}
     angvel_z_exp:       {weight: 1.2, enabled: true, gamma: 0.8}
+    base_height_exp:    {weight: 1.0, target_height: 0.45}
+    _eval_: "lambda a,b,c: (a+b+c)*c"
   body_reg:
     angvel_xy_l2:       {weight: 0.02}
     linvel_z_l2:        {weight: 0.5}
-    base_height_l1:     {weight: 2.0, target_height: 0.45}
     root_upright:       {weight: 1.0}
     survival:           {weight: 1.0}
   joint_reg:
@@ -66,7 +68,7 @@ reward:
     action_rate_l2:     {weight: 0.005}
     action_rate2_l2:    {weight: 0.005}
     undesired_contact:  {weight: 0.25, body_names: [.*_calf, .*thigh]}
-    feet_air_time:      {weight: 0.1, body_names: .*_FOOT, thres: 0.3}
+    feet_air_time:      {weight: 0.2, body_names: .*_FOOT, thres: 0.4}
   debug:
     _enabled_: false
     feet_sliding:       {weight: 1.0, body_names: .*FOOT}
@@ -83,8 +85,8 @@ randomization:
     (?!(front|back)).*: [0.95, 1.1]
   perturb_body_materials:
     body_names: ".*_FOOT"
-    static_friction_range:  [0.5, 4.0]
-    dynamic_friction_range: [0.5, 4.0]
+    static_friction_range:  [0.5, 3.0]
+    dynamic_friction_range: [0.5, 3.0]
     restitution_range:      [0.0, 0.5]
     homogeneous: true # ${task.homogeneous}
   motor_params:
@@ -108,5 +110,5 @@ randomization:
       .*: [0.8, 1.2]
   # random_impulse: {}
   # drive_model_properties:
-  #   joint_names: .*_(HFE|KFE)
+  #   joint_names: .*_(HFE|KNEE)
   #   velocity_resistance_range: [0.0, 10.0]
