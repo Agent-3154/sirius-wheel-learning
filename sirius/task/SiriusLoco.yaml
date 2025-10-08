@@ -43,8 +43,8 @@ observation:
     root_linvel_b:    {yaw_only: true}
     root_angvel_b:
     projected_gravity_b: {noise_std: 0.05}
-    joint_pos_multistep: {steps: 4, noise_std: 0.05}
-    joint_vel_multistep: {steps: 4, noise_std: 0.2}
+    joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
+    joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
     body_height:         {body_names: .*_FOOT}
     prev_actions: {steps: 3}
   terrain_:
@@ -104,10 +104,11 @@ randomization:
       .*_HFE: [0.9, 1.1]
       .*_KNEE: [0.9, 1.1]
     armature_range:
-      .*: [0.0, 0.0]
-  reset_joint_states_scale:
-    pos_scales:
-      .*: [0.8, 1.2]
+      .*: [0.0, 0.02]
+  reset_joint_states_uniform:
+    pos_ranges:
+      .*: [-0.2, 0.2]
+    rel: true
   # random_impulse: {}
   # drive_model_properties:
   #   joint_names: .*_(HFE|KNEE)
