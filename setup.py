@@ -7,6 +7,9 @@ setup(
     entry_points={
         "active_adaptation.projects": [
             "sirius = sirius",
+        ],
+        "active_adaptation.learning": [
+            "sirius = sirius_learning",
         ]
     },
     install_requires=[
