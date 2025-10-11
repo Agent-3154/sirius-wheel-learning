@@ -9,7 +9,7 @@ viewer:
 
 robot:
   name: sirius_diff
-terrain: plane
+terrain: easy
 # terrain: sirius_atec
 
 # common
@@ -29,8 +29,8 @@ action:
 
 command:
   class: Command2
-  linvel_x_range: [-0.8, 1.4]
-  linvel_y_range: [-0.8, 0.8]
+  linvel_x_range: [-1.4, 1.4]
+  linvel_y_range: [-1.0, 1.0]
   angvel_range: [-2.0, 2.0]
   yaw_stiffness_range: [0.5, 1.0]
   use_stiffness_ratio: 0.9
@@ -47,27 +47,29 @@ observation:
     joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
     body_height:         {body_names: .*_FOOT}
     prev_actions: {steps: 3}
-  terrain_:
-    height_scan: {x_range: [-1.2, 1.2], y_range: [-1.0, 1.0], x_resolution: 0.2, y_resolution: 0.2}
+  terrain:
+    height_scan: {x_range: [-1.1, 1.1], y_range: [-0.8, 0.8], x_resolution: 0.1, y_resolution: 0.1}
 
 reward:
   loco:
-    linvel_exp:         {weight: 1.5, enabled: true, dim: 2, gamma: 0.8}
-    angvel_z_exp:       {weight: 1.2, enabled: true, gamma: 0.8}
-    base_height_exp:    {weight: 1.0, target_height: 0.45}
-    _eval_: "lambda a,b,c: (a+b+c)*c"
+    linvel_exp:         {weight: 1.5, dim: 2}
+    angvel_z_exp:       {weight: 1.2}
+    base_height_l1:     {weight: 2.0, target_height: 0.45}
+    quadruped_trot:     {weight: 1.0, body_names: .*_FOOT}
   body_reg:
     angvel_xy_l2:       {weight: 0.02}
     linvel_z_l2:        {weight: 0.5}
     root_upright:       {weight: 1.0}
     survival:           {weight: 1.0}
+    feet_sliding:       {weight: 0.5, body_names: .*FOOT}
   joint_reg:
-    energy_l1:          {weight: 2.0e-4}
+    joint_deviation_l2: {weight: 0.1}
+    energy_l1:          {weight: 1.0e-4}
     joint_acc_l2:       {weight: 1.0e-7}
     joint_torques_l2:   {weight: 5.0e-6}
     action_rate_l2:     {weight: 0.005}
     action_rate2_l2:    {weight: 0.005}
-    undesired_contact:  {weight: 0.25, body_names: [.*_calf, .*thigh]}
+    undesired_contact:  {weight: 0.25, body_names: [.*thigh]}
     feet_air_time:      {weight: 0.2, body_names: .*_FOOT, thres: 0.4}
   debug:
     _enabled_: false
@@ -92,13 +94,13 @@ randomization:
   motor_params:
     actuator_name: base_legs
     stiffness_range:  
-      .*_HAA: [0.8, 1.2]
-      .*_HFE: [0.8, 1.2]
-      .*_KNEE: [0.8, 1.2]
+      .*_HAA: [0.9, 1.1]
+      .*_HFE: [0.9, 1.1]
+      .*_KNEE: [0.9, 1.1]
     damping_range:
-      .*_HAA: [0.8, 1.2]
-      .*_HFE: [0.8, 1.2]
-      .*_KNEE: [0.8, 1.2]
+      .*_HAA: [0.9, 1.1]
+      .*_HFE: [0.9, 1.1]
+      .*_KNEE: [0.9, 1.1]
     scale_factor_range:
       .*_HAA: [0.9, 1.1]
       .*_HFE: [0.9, 1.1]

@@ -202,7 +202,7 @@ SIRIUS_DIFF = ArticulationCfg(
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
             enabled_self_collisions=True,
             solver_position_iteration_count=4,
-            solver_velocity_iteration_count=0,
+            solver_velocity_iteration_count=1,
         ),
         collision_props=sim_utils.CollisionPropertiesCfg(
             contact_offset=0.02,
@@ -214,8 +214,8 @@ SIRIUS_DIFF = ArticulationCfg(
         joint_pos={
             "L[F,H]_HAA": 0.1,
             "R[F,H]_HAA": -0.1,
-            "[L,R]F_HFE":  0.4,
-            "[L,R]H_HFE": -0.4,
+            "[L,R]F_HFE":  0.5,
+            "[L,R]H_HFE": -0.5,
             "[L,R]F_KNEE": -1.2,
             "[L,R]H_KNEE":  1.2,
         },
@@ -225,12 +225,12 @@ SIRIUS_DIFF = ArticulationCfg(
     actuators={
         "base_legs": ImplicitActuatorCfg(
             joint_names_expr=".*",
-            effort_limit_sim={".*": 50.},
+            effort_limit_sim={".*": 80.},
             velocity_limit_sim=80.,
             stiffness={
-                ".*_HAA": 40.,
-                ".*_HFE": 40.,
-                ".*_KNEE": 40.,
+                ".*_HAA": 50.,
+                ".*_HFE": 50.,
+                ".*_KNEE": 50.,
             },
             damping={
                 ".*_HAA": 2.,
