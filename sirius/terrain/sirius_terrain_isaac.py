@@ -10,6 +10,7 @@ from isaaclab.terrains import (
     MeshPitTerrainCfg,
     MeshInvertedPyramidStairsTerrainCfg,
     MeshGapTerrainCfg,
+    HfSteppingStonesTerrainCfg,
 )
 from isaaclab.utils import configclass
 import isaaclab.sim as sim_utils
@@ -97,9 +98,9 @@ SIRIUS_ATEC = TerrainGeneratorCfg(
     slope_threshold=0.75,
     use_cache=False,
     sub_terrains={
-        # "plane": MeshPlaneTerrainCfg(
-        #     proportion=0.5,
-        # ),
+        "plane": MeshPlaneTerrainCfg(
+            proportion=0.5,
+        ),
         "pallet_with_platform": PalletWithPlatformCfg(
             proportion=0.5,
             platform_width=2.0,
@@ -109,14 +110,14 @@ SIRIUS_ATEC = TerrainGeneratorCfg(
         ),
         "gap": MeshGapTerrainCfg(
             proportion=0.5,
-            gap_width_range=(0.20, 0.40),
+            gap_width_range=(0.1, 0.40),
             platform_width=4.0,
         ),
-        # "pit": MeshPitTerrainCfg(
-        #     proportion=0.5,
-        #     pit_depth_range=(0.05, 0.15),
-        #     platform_width=2.0,
-        # ),
+        "pit": MeshPitTerrainCfg(
+            proportion=0.5,
+            pit_depth_range=(0.05, 0.20),
+            platform_width=4.0,
+        ),
         # "pyramid_stairs_inv": MeshInvertedPyramidStairsTerrainCfg(
         #     proportion=0.5,
         #     step_height_range=(0.05, 0.15),
@@ -124,6 +125,31 @@ SIRIUS_ATEC = TerrainGeneratorCfg(
         #     platform_width=2.0,
         #     border_width=1.0,
         # ),
+    },
+)
+
+
+SIRIUS_STEPPING_STONE = TerrainGeneratorCfg(
+    seed=0,
+    size=(8.0, 8.0),
+    border_width=65.0,
+    num_rows=10,
+    num_cols=20,
+    horizontal_scale=0.1,
+    vertical_scale=0.005,
+    slope_threshold=0.75,
+    use_cache=False,
+    sub_terrains={
+        "plane": MeshPlaneTerrainCfg(
+            proportion=0.5,
+        ),
+        "stepping_stones": HfSteppingStonesTerrainCfg(
+            proportion=0.5,
+            stone_distance_range=(0.05, 0.1),
+            stone_width_range=(0.25, 0.5),
+            stone_height_max=0.4,
+            platform_width=2.0,
+        ),
     },
 )
 
@@ -150,3 +176,4 @@ ROUGH_TERRAIN_BASE_CFG = TerrainImporterCfg(
 
 registry.register("terrain", "sirius_demo", ROUGH_TERRAIN_BASE_CFG.replace(terrain_generator=SIRIUS_DEMO))
 registry.register("terrain", "sirius_atec", ROUGH_TERRAIN_BASE_CFG.replace(terrain_generator=SIRIUS_ATEC))
+registry.register("terrain", "sirius_stepping_stone", ROUGH_TERRAIN_BASE_CFG.replace(terrain_generator=SIRIUS_STEPPING_STONE))
