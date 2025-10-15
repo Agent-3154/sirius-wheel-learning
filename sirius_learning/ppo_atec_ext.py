@@ -31,7 +31,7 @@ import torch.utils._pytree as pytree
 
 from torchrl.data import CompositeSpec, TensorSpec
 from torchrl.modules import ProbabilisticActor
-from torchrl.envs.transforms import CatTensors, VecNorm
+from torchrl.envs.transforms import CatTensors
 from tensordict import TensorDict
 from tensordict.nn import (
     TensorDictModuleBase,
@@ -46,6 +46,7 @@ from collections import OrderedDict
 
 from active_adaptation.learning.utils.valuenorm import ValueNorm1, ValueNormFake
 from active_adaptation.learning.modules.distributions import IndependentNormal
+from active_adaptation.learning.modules.vecnorm import VecNorm
 from active_adaptation.learning.ppo.common import *
 
 torch.set_float32_matmul_precision('high')
@@ -70,6 +71,7 @@ class PPOConfig:
     value_norm: bool = False
     compile: bool = False
 
+    vecnorm: Union[str, None] = None
     checkpoint_path: Union[str, None] = None
     in_keys: Tuple[str, ...] = (CMD_KEY, OBS_KEY, "terrain")
 
@@ -89,10 +91,12 @@ class AdaLN(nn.Module):
 
 
 class MixedEncoder(nn.Module):
-    def __init__(self, mlp_out=256, cnn_out=32):
+    def __init__(self, proprio_shape: torch.Size, terrain_shape: torch.Size):
         super().__init__()
-        self.mlp_out = mlp_out
-        self.cnn_out = cnn_out
+        
+        self.mlp_norm = VecNorm(proprio_shape, proprio_shape, 1.0)
+        self.cnn_norm = VecNorm(terrain_shape, [terrain_shape[0], 1, 1], 1.0)
+
         self.mlp_encoder = nn.Sequential(
             nn.LazyLinear(256), nn.Mish(), nn.LayerNorm(256), 
             nn.LazyLinear(256)
@@ -118,6 +122,8 @@ class MixedEncoder(nn.Module):
         self.out = nn.Mish()
 
     def forward(self, mlp_inp, cnn_inp, mask_cnn=None):
+        mlp_inp = self.mlp_norm(mlp_inp)
+        cnn_inp = self.cnn_norm(cnn_inp)
         cnn_feature = self.cnn_encoder(cnn_inp)
         mlp_feature = self.mlp_encoder(mlp_inp)
         if mask_cnn is not None:
@@ -159,6 +165,8 @@ class PPOPolicy(TensorDictModuleBase):
         self.value_norm = value_norm_cls(input_shape=1).to(self.device)
 
         fake_input = observation_spec.zero()
+        proprio_shape = [fake_input[OBS_KEY].shape[-1] + fake_input[CMD_KEY].shape[-1],]
+        terrain_shape = fake_input["terrain"].shape[-3:]
         
         self.cmd_transform = env.observation_funcs[CMD_KEY].symmetry_transforms().to(self.device)
         self.obs_transform = env.observation_funcs[OBS_KEY].symmetry_transforms().to(self.device)
@@ -168,7 +176,7 @@ class PPOPolicy(TensorDictModuleBase):
         _actor = nn.Sequential(ResidualFC(256, 256), Actor(self.action_dim))
         actor_module = TensorDictSequential(
             CatTensors(self.actor_in_keys, "_actor_input", del_keys=False, sort=False),
-            TDMod(MixedEncoder(), ["_actor_input", "terrain"], ["feature"]),
+            TDMod(MixedEncoder(proprio_shape, terrain_shape), ["_actor_input", "terrain"], ["feature"]),
             TDMod(_actor, ["feature"], ["loc", "scale"])
         )
         self.actor: ProbabilisticActor = ProbabilisticActor(
@@ -230,11 +238,14 @@ class PPOPolicy(TensorDictModuleBase):
     def get_rollout_policy(self, mode: str="train"):
         policy = TensorDictSequential(self.actor)
         if self.cfg.compile:
-            policy = torch.compile(policy)
+            policy = torch.compile(policy, fullgraph=True)
             # policy = CudaGraphModule(policy)
         return policy
 
+    @VecNorm.freeze()
     def train_op(self, tensordict: TensorDict):
+        assert VecNorm.FROZEN, "VecNorm must be frozen before training"
+
         tensordict = tensordict.exclude("stats")
         infos = []
         self._compute_advantage(tensordict, self.critic, "adv", "ret", update_value_norm=True)
