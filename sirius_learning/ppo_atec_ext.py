@@ -48,6 +48,7 @@ from active_adaptation.learning.utils.valuenorm import ValueNorm1, ValueNormFake
 from active_adaptation.learning.modules.distributions import IndependentNormal
 from active_adaptation.learning.modules.vecnorm import VecNorm
 from active_adaptation.learning.ppo.common import *
+from active_adaptation.utils.math import quat_rotate_inverse
 
 torch.set_float32_matmul_precision('high')
 USE_DDP = True
@@ -79,15 +80,44 @@ cs = ConfigStore.instance()
 cs.store("ppo_atec_ext", node=PPOConfig, group="algo")
 
 
-class AdaLN(nn.Module):
-    def __init__(self, feat_dim, cond_dim):
-        super().__init__()
-        # self.ln = nn.LayerNorm(feat_dim)
-        self.gamma = nn.Linear(cond_dim, feat_dim)
-        self.beta = nn.Linear(cond_dim, feat_dim)
-        
-    def forward(self, x, cond):
-        return self.gamma(cond) * x + self.beta(cond)
+def label_future_contact(tensordict: TensorDict):
+    """
+    Label the next feet contact position, and whether there are any future contacts.
+    The input tensordict should contain the following information:
+    - root_link_pos_w: (N, 3)
+    - root_link_quat_w: (N, 4)
+    - contact_indicator: (N, T, 4)
+    - last_contact_pos_w: (N, T, 4, 3) # the last contact position in the world frame
+    """
+    N, T = tensordict.shape
+
+    info = tensordict["algo_"].split([3, 4, 4, 12], dim=-1)
+    root_link_pos_w = info[0]
+    root_link_quat_w = info[1]
+    contact_indicator = info[2].reshape(N, T, 4).bool()
+    last_contact_pos_w = info[3].reshape(N, T, 4, 3)
+    has_future_contact = contact_indicator.fliplr().cummax(dim=1).values.fliplr()
+
+    next_contact_pos_w = torch.zeros_like(last_contact_pos_w)
+    contact_pos_w = torch.zeros(N, 4, 3, device=tensordict.device)
+
+    for t in reversed(range(T)):
+        contact_pos_w =  torch.where(
+            contact_indicator[:, t].unsqueeze(-1),
+            last_contact_pos_w[:, t],
+            contact_pos_w
+        )
+        next_contact_pos_w[:, t] = contact_pos_w
+    
+    next_contact_pos_b = quat_rotate_inverse(
+        root_link_quat_w.reshape(N, T, 1, 4),
+        next_contact_pos_w - root_link_pos_w.reshape(N, T, 1, 3)
+    )
+    
+    tensordict.set("has_future_contact", has_future_contact)
+    tensordict.set("next_contact_pos_w", next_contact_pos_w)
+    tensordict.set("next_contact_pos_b", next_contact_pos_b)
+    return tensordict
 
 
 class MixedEncoder(nn.Module):
@@ -114,9 +144,9 @@ class MixedEncoder(nn.Module):
                 ),
                 data_dim=3,
             ),
-            nn.LazyLinear(32),
+            nn.LazyLinear(64),
             nn.Mish(),
-            nn.LayerNorm(32),
+            nn.LayerNorm(64),
             nn.LazyLinear(256)
         )
         self.out = nn.Mish()
@@ -273,19 +303,15 @@ class PPOPolicy(TensorDictModuleBase):
             log_probs_after = dist.log_prob(tensordict_[ACTION_KEY])
             pg_loss_after = log_probs_after.reshape_as(adv_unnormalized) * adv_unnormalized
             pg_loss_before = log_probs_before.reshape_as(adv_unnormalized) * adv_unnormalized
-            # actor_feature_norm = tensordict_["_actor_feature"].norm(dim=-1, keepdim=True)
-            # critic_feature_norm = tensordict_["_critic_feature"].norm(dim=-1, keepdim=True)
                 
         infos = pytree.tree_map(lambda *xs: sum(xs).item() / len(xs), *infos)
         infos["actor/lr"] = self.opt.param_groups[0]["lr"]
         infos["actor/pg_loss_raw_after"] = pg_loss_after.mean().item()
         infos["actor/pg_loss_raw_before"] = pg_loss_before.mean().item()
-        # infos["actor/feature_norm"] = actor_feature_norm.mean().item()
 
         infos["critic/value_mean"] = tensordict["ret"].mean().item()
         infos["critic/value_var"] = tensordict["ret"].var().item()
         infos["critic/neg_rew_ratio"] = (tensordict[REWARD_KEY].sum(-1) <= 0.).float().mean().item()
-        # infos["critic/feature_norm"] = critic_feature_norm.mean().item()
         return dict(sorted(infos.items()))
 
     @torch.no_grad()
