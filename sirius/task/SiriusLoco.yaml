@@ -27,6 +27,9 @@ action:
   max_delay: 1
   alpha: [0.6, 0.9]
 
+# command:
+#   class: SiriusATECCommand
+
 command:
   class: Command2
   linvel_x_range: [-1.4, 1.4]
@@ -45,14 +48,18 @@ observation:
     projected_gravity_b: {noise_std: 0.05}
     joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
     joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
-    body_height:         {body_names: .*_FOOT}
     prev_actions: {steps: 3}
   terrain:
     height_scan: {x_range: [-1.1, 1.1], y_range: [-0.8, 0.8], x_resolution: 0.1, y_resolution: 0.1}
+  algo_:
+    root_pose_w: {}
+    contact_indicator: {body_names: .*_FOOT}
+    body_pos_w: {body_names: .*_FOOT}
 
 reward:
   loco:
     linvel_exp:         {weight: 1.5, dim: 2}
+    linvel_projection:  {weight: 0.5}
     angvel_z_exp:       {weight: 1.2}
     base_height_l1:     {weight: 2.0, target_height: 0.45}
     quadruped_trot:     {weight: 1.0, body_names: .*_FOOT}

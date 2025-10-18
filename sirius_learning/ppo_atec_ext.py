@@ -96,27 +96,38 @@ def label_future_contact(tensordict: TensorDict):
     root_link_quat_w = info[1]
     contact_indicator = info[2].reshape(N, T, 4).bool()
     last_contact_pos_w = info[3].reshape(N, T, 4, 3)
-    has_future_contact = contact_indicator.fliplr().cummax(dim=1).values.fliplr()
 
     next_contact_pos_w = torch.zeros_like(last_contact_pos_w)
+    next_contact_episode_id = torch.zeros(N, T, 4, dtype=int, device=tensordict.device)
+    next_contact_episode_id_ = torch.zeros(N, 4, dtype=int, device=tensordict.device)
+    next_contact_episode_id_.fill_(-1)
     contact_pos_w = torch.zeros(N, 4, 3, device=tensordict.device)
 
     for t in reversed(range(T)):
+        in_contact = contact_indicator[:, t]
         contact_pos_w =  torch.where(
-            contact_indicator[:, t].unsqueeze(-1),
+            in_contact.unsqueeze(-1),
             last_contact_pos_w[:, t],
             contact_pos_w
         )
         next_contact_pos_w[:, t] = contact_pos_w
+
+        next_contact_episode_id_ = torch.where(
+            in_contact,
+            tensordict["episode_id"][:, t].reshape(N, 1),
+            next_contact_episode_id_
+        )
+        next_contact_episode_id[:, t] = next_contact_episode_id_
     
     next_contact_pos_b = quat_rotate_inverse(
         root_link_quat_w.reshape(N, T, 1, 4),
         next_contact_pos_w - root_link_pos_w.reshape(N, T, 1, 3)
     )
-    
+    has_future_contact = next_contact_episode_id == tensordict["episode_id"].reshape(N, T, 1)
     tensordict.set("has_future_contact", has_future_contact)
     tensordict.set("next_contact_pos_w", next_contact_pos_w)
     tensordict.set("next_contact_pos_b", next_contact_pos_b)
+    tensordict.set("next_contact_episode_id", next_contact_episode_id)
     return tensordict
 
 
@@ -207,6 +218,7 @@ class PPOPolicy(TensorDictModuleBase):
         actor_module = TensorDictSequential(
             CatTensors(self.actor_in_keys, "_actor_input", del_keys=False, sort=False),
             TDMod(MixedEncoder(proprio_shape, terrain_shape), ["_actor_input", "terrain"], ["feature"]),
+            TDMod(nn.LazyLinear(12), ["feature"], ["next_contact_pos_pred"]),
             TDMod(_actor, ["feature"], ["loc", "scale"])
         )
         self.actor: ProbabilisticActor = ProbabilisticActor(
@@ -276,7 +288,9 @@ class PPOPolicy(TensorDictModuleBase):
     def train_op(self, tensordict: TensorDict):
         assert VecNorm.FROZEN, "VecNorm must be frozen before training"
 
-        tensordict = tensordict.exclude("stats")
+        tensordict = tensordict.exclude("stats", ("next", "stats"))
+        tensordict = label_future_contact(tensordict)
+
         infos = []
         self._compute_advantage(tensordict, self.critic, "adv", "ret", update_value_norm=True)
         adv_unnormalized = tensordict["adv"].clone()
@@ -352,16 +366,16 @@ class PPOPolicy(TensorDictModuleBase):
         bsize = tensordict.shape[0]
         loc_old, scale_old = tensordict["loc"], tensordict["scale"]
 
-        symmetry = tensordict.empty()
-        symmetry[ACTION_KEY] = self.act_transform(tensordict[ACTION_KEY])
-        symmetry[CMD_KEY] = self.cmd_transform(tensordict[CMD_KEY])
-        symmetry[OBS_KEY] = self.obs_transform(tensordict[OBS_KEY])
-        symmetry["terrain"] = self.terrain_transform(tensordict["terrain"])
-        symmetry["action_log_prob"] = tensordict["action_log_prob"]
-        symmetry["adv"] = tensordict["adv"]
-        symmetry["ret"] = tensordict["ret"]
-        symmetry["is_init"] = tensordict["is_init"]
-        tensordict = torch.cat([tensordict.select(*symmetry.keys(True, True)), symmetry], dim=0)
+        # symmetry = tensordict.empty()
+        # symmetry[ACTION_KEY] = self.act_transform(tensordict[ACTION_KEY])
+        # symmetry[CMD_KEY] = self.cmd_transform(tensordict[CMD_KEY])
+        # symmetry[OBS_KEY] = self.obs_transform(tensordict[OBS_KEY])
+        # symmetry["terrain"] = self.terrain_transform(tensordict["terrain"])
+        # symmetry["action_log_prob"] = tensordict["action_log_prob"]
+        # symmetry["adv"] = tensordict["adv"]
+        # symmetry["ret"] = tensordict["ret"]
+        # symmetry["is_init"] = tensordict["is_init"]
+        # tensordict = torch.cat([tensordict.select(*symmetry.keys(True, True)), symmetry], dim=0)
 
         valid = (~tensordict["is_init"])
         valid_cnt = valid.sum()
@@ -381,12 +395,20 @@ class PPOPolicy(TensorDictModuleBase):
         policy_loss = - (torch.min(surr1, surr2).reshape_as(valid) * valid).sum() / valid_cnt
         entropy_loss = - self.entropy_coef * entropy
 
+        has_future_contact = tensordict["has_future_contact"].reshape(-1, 4) & valid.reshape(-1, 1)
+        aux_loss = (
+            tensordict["next_contact_pos_pred"].reshape(-1, 4, 3)
+            - tensordict["next_contact_pos_b"].reshape(-1, 4, 3)
+        ).square().sum(-1)
+        aux_loss = aux_loss * has_future_contact
+        aux_loss = aux_loss.sum() / has_future_contact.sum()
+
         b_returns = tensordict["ret"]
         values = self.critic(tensordict)["state_value"]
         value_loss = self.critic_loss_fn(b_returns, values)
         value_loss = (value_loss.reshape_as(valid) * valid).sum() / valid_cnt
 
-        loss = policy_loss + entropy_loss + value_loss
+        loss = policy_loss + entropy_loss + value_loss + aux_loss
         self.opt.zero_grad()
         loss.backward()
 
@@ -407,14 +429,15 @@ class PPOPolicy(TensorDictModuleBase):
             clipfrac = ((ratio - 1.0).abs() > self.clip_param).float().mean()
             loc, scale = dist.loc[:bsize], dist.scale[:bsize]
             kl = IndependentNormal.kl(loc, scale, loc_old, scale_old).mean()
-            symmetry_loss = F.mse_loss(dist.mean[bsize:], self.act_transform(dist.mean[:bsize]))
+            # symmetry_loss = F.mse_loss(dist.mean[bsize:], self.act_transform(dist.mean[:bsize]))
         return {
             "actor/policy_loss": policy_loss.detach(),
             "actor/entropy": entropy.detach(),
             "actor/grad_norm": actor_grad_norm,
             "actor/clamp_ratio": clipfrac,
             "actor/kl": kl,
-            "actor/symmetry_loss": symmetry_loss.detach(),
+            "actor/aux_loss": aux_loss.detach(),
+            # "actor/symmetry_loss": symmetry_loss.detach(),
             "critic/value_loss": value_loss.detach(),
             "critic/grad_norm": critic_grad_norm,
             "critic/explained_var": explained_var,
