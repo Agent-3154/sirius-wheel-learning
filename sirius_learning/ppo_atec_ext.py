@@ -65,10 +65,11 @@ class PPOConfig:
     ppo_epochs: int = 4
     num_minibatches: int = 4
     lr: float = 5e-4
-    desired_kl: Union[float, None] = None
+    desired_kl: Union[float, None] = 0.02
     clip_param: float = 0.2
     entropy_coef: float = 0.002
-    layer_norm: Union[str, None] = "before"
+    aux_coef: float = 0.2
+
     value_norm: bool = False
     compile: bool = False
 
@@ -197,13 +198,10 @@ class PPOPolicy(TensorDictModuleBase):
         self.clip_param = self.cfg.clip_param
         self.critic_loss_fn = nn.MSELoss(reduction="none")
         self.action_dim = action_spec.shape[-1]
+        self.aux_coef = self.cfg.aux_coef
         self.gae = GAE(0.99, 0.95)
         
-        if cfg.value_norm:
-            value_norm_cls = ValueNorm1
-        else:
-            value_norm_cls = ValueNormFake
-        self.value_norm = value_norm_cls(input_shape=1).to(self.device)
+        self.value_norm = ValueNormFake(input_shape=1).to(self.device)
 
         fake_input = observation_spec.zero()
         proprio_shape = [fake_input[OBS_KEY].shape[-1] + fake_input[CMD_KEY].shape[-1],]
@@ -293,6 +291,7 @@ class PPOPolicy(TensorDictModuleBase):
 
         infos = []
         self._compute_advantage(tensordict, self.critic, "adv", "ret", update_value_norm=True)
+        action = tensordict[ACTION_KEY]
         adv_unnormalized = tensordict["adv"].clone()
         log_probs_before = tensordict["action_log_prob"]
         tensordict["adv"] = normalize(tensordict["adv"], subtract_mean=True)
@@ -314,7 +313,7 @@ class PPOPolicy(TensorDictModuleBase):
         with torch.no_grad():
             tensordict_ = self.actor(tensordict.copy())
             dist = IndependentNormal(tensordict_["loc"], tensordict_["scale"])
-            log_probs_after = dist.log_prob(tensordict_[ACTION_KEY])
+            log_probs_after = dist.log_prob(action)
             pg_loss_after = log_probs_after.reshape_as(adv_unnormalized) * adv_unnormalized
             pg_loss_before = log_probs_before.reshape_as(adv_unnormalized) * adv_unnormalized
                 
@@ -408,7 +407,7 @@ class PPOPolicy(TensorDictModuleBase):
         value_loss = self.critic_loss_fn(b_returns, values)
         value_loss = (value_loss.reshape_as(valid) * valid).sum() / valid_cnt
 
-        loss = policy_loss + entropy_loss + value_loss + aux_loss
+        loss = policy_loss + entropy_loss + value_loss + self.aux_coef * aux_loss
         self.opt.zero_grad()
         loss.backward()
 
