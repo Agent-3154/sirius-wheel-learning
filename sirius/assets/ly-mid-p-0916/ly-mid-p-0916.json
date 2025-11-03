@@ -1,0 +1,95 @@
+{
+    "init_state": {
+        "pos": [
+            0.0,
+            0.0,
+            0.6
+        ],
+        "rot": [
+            1.0,
+            0.0,
+            0.0,
+            0.0
+        ],
+        "lin_vel": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "ang_vel": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "joint_pos": {
+            "L[F,H]_HAA": 0.1,
+            "R[F,H]_HAA": -0.1,
+            "[L,R]F_HFE": 0.5,
+            "[L,R]H_HFE": -0.5,
+            "[L,R]F_KNEE": -1.2,
+            "[L,R]H_KNEE": 1.2
+        },
+        "joint_vel": {
+            ".*": 0.0
+        }
+    },
+    "body_names_isaac": [
+        "trunk",
+        "LF_hip",
+        "LH_hip",
+        "RF_hip",
+        "RH_hip",
+        "LF_thigh",
+        "LH_thigh",
+        "RF_thigh",
+        "RH_thigh",
+        "LF_calf",
+        "LH_calf",
+        "RF_calf",
+        "RH_calf",
+        "LF_FOOT",
+        "LH_FOOT",
+        "RF_FOOT",
+        "RH_FOOT"
+    ],
+    "joint_names_isaac": [
+        "LF_HAA",
+        "LH_HAA",
+        "RF_HAA",
+        "RH_HAA",
+        "LF_HFE",
+        "LH_HFE",
+        "RF_HFE",
+        "RH_HFE",
+        "LF_KNEE",
+        "LH_KNEE",
+        "RF_KNEE",
+        "RH_KNEE"
+    ],
+    "actuators": {
+        "base_legs": {
+            "class_type": "isaaclab.actuators.actuator_pd:ImplicitActuator",
+            "joint_names_expr": ".*",
+            "effort_limit": {
+                ".*": 80.0
+            },
+            "velocity_limit": 80.0,
+            "effort_limit_sim": {
+                ".*": 80.0
+            },
+            "velocity_limit_sim": 80.0,
+            "stiffness": {
+                ".*_HAA": 50.0,
+                ".*_HFE": 50.0,
+                ".*_KNEE": 50.0
+            },
+            "damping": {
+                ".*_HAA": 2.0,
+                ".*_HFE": 2.0,
+                ".*_KNEE": 2.0
+            },
+            "armature": {".*": 0.01},
+            "friction": {".*": 0.01}
+        }
+    }
+}

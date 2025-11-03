@@ -64,5 +64,31 @@ SIRIUS_WHEEL2_CFG = MJArticulationCfg(
     })
 )
 
+# point-feet version, no wheels
+SIRIUS_DIFF_CFG = MJArticulationCfg(
+    mjcf_path=str(ASSET_PATH/ "ly-mid-p-0916" / "ly-mid-p-0916.xml"),
+    **json.load(open(ASSET_PATH/ "ly-mid-p-0916" / "ly-mid-p-0916.json")),
+    joint_symmetry_mapping=symmetry_utils.mirrored({
+        "LF_HAA": (-1, "RF_HAA"),
+        "LH_HAA": (-1, "RH_HAA"),
+        "LF_HFE": (1, "RF_HFE"),
+        "LH_HFE": (1, "RH_HFE"),
+        "LF_KNEE": (1, "RF_KNEE"),
+        "LH_KNEE": (1, "RH_KNEE"),
+    }),
+    spatial_symmetry_mapping=symmetry_utils.mirrored({
+        "trunk": "trunk",
+        "LF_hip": "RF_hip",
+        "LH_hip": "RH_hip",
+        "LF_calf": "RF_calf",
+        "LH_calf": "RH_calf",
+        "LF_thigh": "RF_thigh",
+        "LH_thigh": "RH_thigh",
+        "LF_FOOT": "RF_FOOT",
+        "LH_FOOT": "RH_FOOT",
+    })
+)
+
 registry.register("asset", "sirius_wheel", SIRIUS_WHEEL_CFG)
 registry.register("asset", "sirius_wheel2", SIRIUS_WHEEL2_CFG)
+registry.register("asset", "sirius_diff", SIRIUS_DIFF_CFG)
