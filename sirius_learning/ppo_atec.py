@@ -44,9 +44,10 @@ from dataclasses import dataclass
 from typing import Union, Tuple
 from collections import OrderedDict
 
-from active_adaptation.learning.utils.valuenorm import ValueNorm1, ValueNormFake
-from active_adaptation.learning.modules.distributions import IndependentNormal
+from active_adaptation.learning.modules import IndependentNormal, VecNorm
 from active_adaptation.learning.ppo.common import *
+from active_adaptation.learning.ppo.ppo_base import PPOBase
+from active_adaptation.utils.symmetry import SymmetryTransform
 
 torch.set_float32_matmul_precision('high')
 USE_DDP = True
@@ -65,10 +66,10 @@ class PPOConfig:
     lr: float = 5e-4
     desired_kl: Union[float, None] = None
     clip_param: float = 0.2
-    entropy_coef: float = 0.01
-    layer_norm: Union[str, None] = "before"
-    value_norm: bool = False
+    entropy_coef: float = 0.002
+
     compile: bool = False
+    use_ddp: bool = True
 
     checkpoint_path: Union[str, None] = None
     in_keys: Tuple[str, ...] = (CMD_KEY, OBS_KEY, "terrain_")
@@ -81,28 +82,28 @@ class MixedEncoder(nn.Module):
         super().__init__()
         self.mlp_out = mlp_out
         self.cnn_out = cnn_out
-        self.mlp_encoder = make_mlp([256, 256])
+        self.mlp_encoder = make_mlp([256, 256, 256])
 
         cnn_cls = nn.LazyConv2d
         data_dim = 3 # [C, X, Y]
 
-        self.cnn_encoder = nn.Sequential(
-            FlattenBatch(
-                nn.Sequential(
-                    cnn_cls(8, kernel_size=3, stride=2, padding=1), 
-                    nn.Mish(), # nn.GroupNorm(num_channels=2, num_groups=2),
-                    cnn_cls(8, kernel_size=3, stride=2, padding=1),
-                    nn.Mish(), # nn.GroupNorm(num_channels=4, num_groups=2),
-                    cnn_cls(8, kernel_size=3, stride=2, padding=1),
-                    nn.Mish(), # nn.GroupNorm(num_channels=8, num_groups=2), 
-                    nn.Flatten(),
-                ),
-                data_dim=data_dim,
-            ),
-            nn.LazyLinear(48),
-            nn.Mish(),
-            nn.LayerNorm(48),
-        )
+        # self.cnn_encoder = nn.Sequential(
+        #     FlattenBatch(
+        #         nn.Sequential(
+        #             cnn_cls(8, kernel_size=3, stride=2, padding=1), 
+        #             nn.Mish(), # nn.GroupNorm(num_channels=2, num_groups=2),
+        #             cnn_cls(8, kernel_size=3, stride=2, padding=1),
+        #             nn.Mish(), # nn.GroupNorm(num_channels=4, num_groups=2),
+        #             cnn_cls(8, kernel_size=3, stride=2, padding=1),
+        #             nn.Mish(), # nn.GroupNorm(num_channels=8, num_groups=2), 
+        #             nn.Flatten(),
+        #         ),
+        #         data_dim=data_dim,
+        #     ),
+        #     nn.LazyLinear(48),
+        #     nn.Mish(),
+        #     nn.LayerNorm(48),
+        # )
         self.out = nn.Sequential(nn.LazyLinear(256), nn.Mish())
 
     def forward(self, mlp_inp, cnn_inp, mask_cnn=None):
@@ -114,7 +115,7 @@ class MixedEncoder(nn.Module):
         return self.out(mlp_feature)
 
 
-class PPOPolicy(TensorDictModuleBase):
+class PPOPolicy(PPOBase):
 
     actor_in_keys = [CMD_KEY, OBS_KEY]
     critic_in_keys = [CMD_KEY, OBS_KEY]
@@ -137,29 +138,35 @@ class PPOPolicy(TensorDictModuleBase):
         self.desired_kl = self.cfg.desired_kl
         self.clip_param = self.cfg.clip_param
         self.critic_loss_fn = nn.MSELoss(reduction="none")
-        self.action_dim = action_spec.shape[-1]
+        self.action_dim = env.action_manager.action_dim
         self.gae = GAE(0.99, 0.95)
         
-        if cfg.value_norm:
-            value_norm_cls = ValueNorm1
-        else:
-            value_norm_cls = ValueNormFake
-        self.value_norm = value_norm_cls(input_shape=1).to(self.device)
-
         fake_input = observation_spec.zero()
         
         self.cmd_transform = env.observation_funcs[CMD_KEY].symmetry_transforms()
         self.obs_transform = env.observation_funcs[OBS_KEY].symmetry_transforms()
-        self.terrain_transform = env.observation_funcs["terrain_"].symmetry_transforms()
+        self.terrain_transform = env.observation_funcs["terrain"].symmetry_transforms()
         self.act_transform = env.action_manager.symmetry_transforms()
+
         self.cmd_transform = self.cmd_transform.to(self.device)
         self.obs_transform = self.obs_transform.to(self.device)
+        self.input_transform = SymmetryTransform.cat([self.cmd_transform, self.obs_transform]).to(self.device)
+
         self.terrain_transform = self.terrain_transform.to(self.device)
         self.act_transform = self.act_transform.to(self.device)
+        
+        input_dim = observation_spec[OBS_KEY].shape[-1] + observation_spec[CMD_KEY].shape[-1]
+        self.vecnorm = TensorDictSequential(
+            CatTensors([CMD_KEY, OBS_KEY], "_cmd_policy", del_keys=False, sort=False),
+            TDMod(
+                VecNorm(input_shape=(input_dim,), stats_shape=(input_dim,), decay=1.0),
+                ["_cmd_policy"],
+                ["_cmd_policy"]
+            ),
+        ).to(self.device)
 
         actor_module = TensorDictSequential(
-            CatTensors(self.actor_in_keys, "_actor_input", del_keys=False, sort=False),
-            TDMod(MixedEncoder(conv3d=False), ["_actor_input", "terrain_"], ["_actor_feature"]),
+            TDMod(MixedEncoder(conv3d=False), ["_cmd_policy", "terrain"], ["_actor_feature"]),
             TDMod(Actor(self.action_dim), ["_actor_feature"], ["loc", "scale"])
         )
         self.actor: ProbabilisticActor = ProbabilisticActor(
@@ -171,11 +178,11 @@ class PPOPolicy(TensorDictModuleBase):
         ).to(self.device)
         
         self.critic = TensorDictSequential(
-            CatTensors(self.critic_in_keys, "_critic_input", del_keys=False, sort=False),
-            TDMod(MixedEncoder(conv3d=False), ["_critic_input", "terrain_"], ["_critic_feature"]),
+            TDMod(MixedEncoder(conv3d=False), ["_cmd_policy", "terrain"], ["_critic_feature"]),
             TDMod(nn.LazyLinear(1), ["_critic_feature"], ["state_value"])
         ).to(self.device)
 
+        self.vecnorm(fake_input)
         self.actor(fake_input)
         self.critic(fake_input)
 
@@ -202,7 +209,7 @@ class PPOPolicy(TensorDictModuleBase):
                 world_size=active_adaptation.get_world_size(),
                 rank=active_adaptation.get_local_rank()
             )
-            if USE_DDP:
+            if self.cfg.use_ddp:
                 self.actor = DDP(self.actor)
                 self.critic = DDP(self.critic)
             else:
@@ -213,22 +220,24 @@ class PPOPolicy(TensorDictModuleBase):
             self.world_size = active_adaptation.get_world_size()
             
         self.update = self._update
-        if self.cfg.compile and not active_adaptation.is_distributed():
-            # TODO: compile for multi-gpu training?
-            self.update = torch.compile(self.update, fullgraph=True)
-            # self.update = CudaGraphModule(self.update)
     
     def get_rollout_policy(self, mode: str="train"):
-        policy = TensorDictSequential(self.actor)
-        if self.cfg.compile:
-            policy = torch.compile(policy)
-            # policy = CudaGraphModule(policy)
+        policy = TensorDictSequential(self.vecnorm, self.actor)
         return policy
 
+    @VecNorm.freeze()
     def train_op(self, tensordict: TensorDict):
+        assert VecNorm.FROZEN, "VecNorm must be frozen before training"
         tensordict = tensordict.exclude("stats")
         infos = []
-        self._compute_advantage(tensordict, self.critic, "adv", "ret", update_value_norm=True)
+
+        self.vecnorm(tensordict)
+        self.vecnorm(tensordict["next"])
+        self.compute_advantage(tensordict, self.critic, "adv", "ret")
+
+        action = tensordict[ACTION_KEY].clone()
+        adv_unnormalized = tensordict["adv"]
+        log_probs_before = tensordict["action_log_prob"]
         tensordict["adv"] = normalize(tensordict["adv"], subtract_mean=True)
 
         for epoch in range(self.cfg.ppo_epochs):
@@ -244,47 +253,22 @@ class PPOPolicy(TensorDictModuleBase):
                     elif kl < self.desired_kl / 2.0 and kl > 0.0:
                         actor_lr = min(1e-2, actor_lr * 1.5)
                     self.opt.param_groups[0]["lr"] = actor_lr
-                
+        
+        with torch.no_grad():
+            tensordict_ = self.actor(tensordict.copy())
+            dist = IndependentNormal(tensordict_["loc"], tensordict_["scale"])
+            log_probs_after = dist.log_prob(action)
+            pg_loss_after = log_probs_after.reshape_as(adv_unnormalized) * adv_unnormalized
+            pg_loss_before = log_probs_before.reshape_as(adv_unnormalized) * adv_unnormalized
+
         infos = pytree.tree_map(lambda *xs: sum(xs).item() / len(xs), *infos)
         infos["actor/lr"] = self.opt.param_groups[0]["lr"]
+        infos["actor/pg_loss_raw_after"] = pg_loss_after.mean().item()
+        infos["actor/pg_loss_raw_before"] = pg_loss_before.mean().item()
         infos["critic/value_mean"] = tensordict["ret"].mean().item()
         infos["critic/value_var"] = tensordict["ret"].var().item()
         infos["critic/neg_rew_ratio"] = (tensordict[REWARD_KEY].sum(-1) <= 0.).float().mean().item()
         return dict(sorted(infos.items()))
-
-    @torch.no_grad()
-    def _compute_advantage(
-        self, 
-        tensordict: TensorDict,
-        critic: TDMod, 
-        adv_key: str="adv",
-        ret_key: str="ret",
-        update_value_norm: bool=True,
-    ):
-        keys = tensordict.keys(True, True)
-        if not ("state_value" in keys and ("next", "state_value") in keys):
-            with tensordict.view(-1) as tensordict_flat:
-                critic(tensordict_flat)
-                critic(tensordict_flat["next"])
-
-        values = tensordict["state_value"]
-        next_values = tensordict["next", "state_value"]
-
-        rewards = tensordict[REWARD_KEY].sum(-1, keepdim=True).clamp_min(0.)
-        discount = tensordict["next", "discount"]
-        terms = tensordict[TERM_KEY]
-        dones = tensordict[DONE_KEY]
-        values = self.value_norm.denormalize(values)
-        next_values = self.value_norm.denormalize(next_values)
-
-        adv, ret = self.gae(rewards, terms, dones, values, next_values, discount)
-        if update_value_norm:
-            self.value_norm.update(ret)
-        ret = self.value_norm.normalize(ret)
-
-        tensordict.set(adv_key, adv)
-        tensordict.set(ret_key, ret)
-        return tensordict
 
     def _update(self, tensordict: TensorDict):
         bsize = tensordict.shape[0]
@@ -292,9 +276,8 @@ class PPOPolicy(TensorDictModuleBase):
 
         symmetry = tensordict.empty()
         symmetry[ACTION_KEY] = self.act_transform(tensordict[ACTION_KEY])
-        symmetry[CMD_KEY] = self.cmd_transform(tensordict[CMD_KEY])
-        symmetry[OBS_KEY] = self.obs_transform(tensordict[OBS_KEY])
-        symmetry["terrain_"] = self.terrain_transform(tensordict["terrain_"])
+        symmetry["_cmd_policy"] = self.input_transform(tensordict["_cmd_policy"])
+        symmetry["terrain"] = self.terrain_transform(tensordict["terrain"])
         symmetry["action_log_prob"] = tensordict["action_log_prob"]
         symmetry["adv"] = tensordict["adv"]
         symmetry["ret"] = tensordict["ret"]
@@ -328,7 +311,7 @@ class PPOPolicy(TensorDictModuleBase):
         self.opt.zero_grad()
         loss.backward()
 
-        if active_adaptation.is_distributed() and not USE_DDP:
+        if active_adaptation.is_distributed() and not self.cfg.use_ddp:
             for param in self.actor.parameters():
                 distr.all_reduce(param.grad, op=distr.ReduceOp.SUM)
                 param.grad /= self.world_size
@@ -362,30 +345,6 @@ class PPOPolicy(TensorDictModuleBase):
             "critic/grad_norm": critic_grad_norm,
             "critic/explained_var": explained_var,
         }
-
-    def state_dict(self):
-        state_dict = OrderedDict()
-        for name, module in self.named_children():
-            if isinstance(module, DDP):
-                module = module.module
-            state_dict[name] = module.state_dict()
-        return state_dict
-    
-    def load_state_dict(self, state_dict, strict=True):
-        succeed_keys = []
-        failed_keys = []
-        for name, module in self.named_children():
-            _state_dict = state_dict.get(name, {})
-            try:
-                if isinstance(module, DDP):
-                    module = module.module
-                module.load_state_dict(_state_dict, strict=strict)
-                succeed_keys.append(name)
-            except Exception as e:
-                warnings.warn(f"Failed to load state dict for {name}: {str(e)}")
-                failed_keys.append(name)
-        print(f"Successfully loaded {succeed_keys}.")
-        return failed_keys
 
 
 def normalize(x: torch.Tensor, subtract_mean: bool=False):
