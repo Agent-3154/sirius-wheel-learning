@@ -28,9 +28,9 @@ import torch.distributions as D
 import torch.utils._pytree as pytree
 import functools
 
-from torchrl.data import CompositeSpec, TensorSpec
+from torchrl.data import CompositeSpec, TensorSpec, UnboundedContinuous
 from torchrl.modules import ProbabilisticActor
-from torchrl.envs.transforms import CatTensors, VecNorm
+from torchrl.envs.transforms import CatTensors, VecNorm, TensorDictPrimer
 from tensordict import TensorDict
 from tensordict.nn import (
     TensorDictModule as TDMod,
@@ -42,7 +42,7 @@ from dataclasses import dataclass
 from typing import Union, Tuple
 from collections import OrderedDict
 
-from active_adaptation.learning.modules import IndependentNormal, VecNorm
+from active_adaptation.learning.modules import IndependentNormal, VecNorm, GRUCore
 from active_adaptation.learning.ppo.common import *
 from active_adaptation.learning.ppo.ppo_base import PPOBase
 from active_adaptation.utils.symmetry import SymmetryTransform
@@ -73,6 +73,21 @@ class PPOConfig:
 
 cs = ConfigStore.instance()
 cs.store("ppo_atec", node=PPOConfig, group="algo")
+cs.store("ppo_atec_finetune", node=PPOConfig(phase="finetune"), group="algo")
+
+
+class GRUModule(nn.Module):
+    def __init__(self, output_dim: int):
+        super().__init__()
+        self.mlp = make_mlp([128])
+        self.gru = GRUCore(input_size=128, hidden_size=128)
+        self.out = nn.LazyLinear(output_dim)
+    
+    def forward(self, x, is_init, hx):
+        x = self.mlp(x)
+        x, hx = self.gru(x, hx, is_init)
+        x = self.out(x)
+        return x, hx.contiguous()
 
 
 class PPOPolicy(PPOBase):
@@ -94,7 +109,7 @@ class PPOPolicy(PPOBase):
         self.cfg = PPOConfig(**cfg)
         self.device = device
 
-        self.entropy_coef = self.cfg.entropy_coef
+        self.observation_spec = observation_spec
         self.max_grad_norm = 1.0
         self.desired_kl = self.cfg.desired_kl
         self.clip_param = self.cfg.clip_param
@@ -138,16 +153,27 @@ class PPOPolicy(PPOBase):
         self.actor_teacher = make_actor(["_cmd_policy", "_priv_feature"])
         self.actor_student = make_actor(["_cmd_policy", "_priv_feature_est"])
         
+        self.adapt_module = TDMod(
+            GRUModule(output_dim=128),
+            ["_cmd_policy", "is_init", "hx"],
+            ["_priv_feature_est", ("next", "hx")]
+        ).to(self.device)
+        
         self.critic = TDSeq(
             CatTensors(["_cmd_policy", "_priv"], "_critic_input", del_keys=False, sort=False),
             TDMod(make_mlp([256, 256, 256]), ["_critic_input"], ["_critic_feature"]),
             TDMod(nn.LazyLinear(1), ["_critic_feature"], ["state_value"])
         ).to(self.device)
 
+        with torch.device(self.device):
+            fake_input["is_init"] = torch.ones(fake_input.shape[0], 1, dtype=torch.bool)
+            fake_input["hx"] = torch.zeros(fake_input.shape[0], 128)
+        
         self.vecnorm(fake_input)
         self.priv_encoder(fake_input)
         self.actor_teacher(fake_input)
-        # self.actor_student(fake_input)
+        self.adapt_module(fake_input)
+        self.actor_student(fake_input)
         self.critic(fake_input)
 
         self.opt_teacher = torch.optim.AdamW(
@@ -167,7 +193,14 @@ class PPOPolicy(PPOBase):
             lr=cfg.lr,
             weight_decay=0.02
         )
-        # self.opt_est = torch.optim.AdamW(
+
+        self.opt_adapt = torch.optim.AdamW(
+            [
+                {"params": self.adapt_module.parameters()},
+            ],
+            lr=cfg.lr,
+            weight_decay=0.02
+        )
         
         def init_(module):
             if isinstance(module, nn.Linear):
@@ -199,6 +232,14 @@ class PPOPolicy(PPOBase):
             opt=self.opt_student
         )
     
+    def make_tensordict_primer(self):
+        num_envs = self.observation_spec.shape[0]
+        return TensorDictPrimer(
+            {"hx": UnboundedContinuous((num_envs, 128), device=self.device)},
+            reset_key="done",
+            expand_specs=False
+        )
+    
     def get_rollout_policy(self, mode: str="train"):
         if self.cfg.phase == "train":
             policy = TDSeq(self.vecnorm, self.priv_encoder, self.actor_teacher)
@@ -210,6 +251,23 @@ class PPOPolicy(PPOBase):
     def train_op(self, tensordict: TensorDict):
         assert VecNorm.FROZEN, "VecNorm must be frozen before training"
         tensordict = tensordict.exclude("stats")
+        infos = {}
+        if self.cfg.phase == "train":
+            infos.update(self.train_policy(tensordict.copy()))
+            if self.num_updates % 2 == 0:
+                infos.update(self.train_adapt(tensordict.copy()))
+        elif self.cfg.phase == "finetune":
+            infos.update(self.train_policy(tensordict.copy()))
+            infos.update(self.train_adapt(tensordict.copy()))
+        
+        if active_adaptation.is_distributed():
+            self.vecnorm[1].module.synchronize(mode="broadcast")
+            self.vecnorm[2].module.synchronize(mode="broadcast")
+        
+        self.num_updates += 1
+        return infos
+    
+    def train_policy(self, tensordict: TensorDict):
         infos = []
 
         self.vecnorm(tensordict)
@@ -229,8 +287,8 @@ class PPOPolicy(PPOBase):
             actor = self.actor_student
 
         for epoch in range(self.cfg.ppo_epochs):
-            batch = make_batch(tensordict, self.cfg.num_minibatches)
-            for minibatch in batch:
+            batches = make_batch(tensordict, self.cfg.num_minibatches)
+            for minibatch in batches:
                 infos.append(update_fn(minibatch))
                 
                 # if self.desired_kl is not None: # adaptive learning rate
@@ -241,7 +299,7 @@ class PPOPolicy(PPOBase):
                 #     elif kl < self.desired_kl / 2.0 and kl > 0.0:
                 #         actor_lr = min(1e-2, actor_lr * 1.5)
                 #     self.opt.param_groups[0]["lr"] = actor_lr
-        
+
         with torch.no_grad():
             tensordict_ = actor(tensordict.copy())
             dist = IndependentNormal(tensordict_["loc"], tensordict_["scale"])
@@ -327,6 +385,36 @@ class PPOPolicy(PPOBase):
             "critic/grad_norm": critic_grad_norm,
             "critic/explained_var": explained_var,
         }
+    
+    def train_adapt(self, tensordict: TensorDict):
+        with torch.inference_mode():
+            self.vecnorm(tensordict)
+            self.priv_encoder(tensordict)
+
+        batches = make_batch(tensordict, self.cfg.num_minibatches, self.cfg.train_every)
+        for minibatch in batches:
+            self.adapt_module(minibatch)
+            valid = (~minibatch["is_init"])
+            valid_cnt = valid.sum()
+            adapt_loss = torch.square(minibatch["_priv_feature_est"] - minibatch["_priv_feature"])
+            adapt_loss = (adapt_loss * valid).sum() / valid_cnt
+            self.opt_adapt.zero_grad()
+            adapt_loss.backward()
+            self.opt_adapt.step()
+        return {
+            "adapt/priv_loss": adapt_loss.detach().item(),
+        }
+    
+    def state_dict(self):
+        state_dict = super().state_dict()
+        state_dict["last_phase"] = self.cfg.phase
+        return state_dict
+    
+    def load_state_dict(self, state_dict, strict=True):
+        failed_keys = super().load_state_dict(state_dict, strict=strict)
+        if state_dict.get("last_phase", "train") == "train":
+            hard_copy_(self.actor_teacher, self.actor_student)
+        return failed_keys
 
 
 def normalize(x: torch.Tensor, subtract_mean: bool=False):
