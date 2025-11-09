@@ -42,8 +42,8 @@
             <geom type="mesh" conaffinity="0" rgba="0.69804 0.69804 0.69804 1" mesh="LF_SHANK_LINK"/>
             <geom size="0.03" pos="0 0 -0.33" contype="0" conaffinity="0" group="1" density="0" rgba="0.2 0.2 0.2 1"/>
             <geom size="0.03" pos="0 0 -0.33" conaffinity="0" rgba="0.2 0.2 0.2 1"/>
-            <body name="LF_FOOT" pos="0 0 0">
-              <geom type="sphere" size="0.05" conaffinity="0" rgba="0.69804 0.69804 0.69804 1"/>
+            <body name="LF_FOOT" pos="0 0 -0.33">
+              <geom type="sphere" size="0.05" conaffinity="0" rgba="0.69804 0.69804 0.69804 1" friction="1.0 0.1 0.0"/>
             </body>
           </body>
         </body>
@@ -65,8 +65,8 @@
             <geom type="mesh" conaffinity="0" rgba="0.69804 0.69804 0.69804 1" mesh="RF_SHANK_LINK"/>
             <geom size="0.03" pos="0 0 -0.33" contype="0" conaffinity="0" group="1" density="0" rgba="0.2 0.2 0.2 1"/>
             <geom size="0.03" pos="0 0 -0.33" conaffinity="0" rgba="0.2 0.2 0.2 1"/>
-            <body name="RF_FOOT" pos="0 0 0">
-              <geom type="sphere" size="0.05" conaffinity="0" rgba="0.69804 0.69804 0.69804 1"/>
+            <body name="RF_FOOT" pos="0 0 -0.33">
+              <geom type="sphere" size="0.05" conaffinity="0" rgba="0.69804 0.69804 0.69804 1" friction="1.0 0.1 0.0"/>
             </body>
           </body>
         </body>
@@ -88,8 +88,8 @@
             <geom type="mesh" conaffinity="0" rgba="0.69804 0.69804 0.69804 1" mesh="LH_SHANK_LINK"/>
             <geom size="0.03" pos="0 0 -0.33" contype="0" conaffinity="0" group="1" density="0" rgba="0.2 0.2 0.2 1"/>
             <geom size="0.03" pos="0 0 -0.33" conaffinity="0" rgba="0.2 0.2 0.2 1"/>
-            <body name="LH_FOOT" pos="0 0 0">
-              <geom type="sphere" size="0.05" conaffinity="0" rgba="0.69804 0.69804 0.69804 1"/>
+            <body name="LH_FOOT" pos="0 0 -0.33">
+              <geom type="sphere" size="0.05" conaffinity="0" rgba="0.69804 0.69804 0.69804 1" friction="1.0 0.1 0.0"/>
             </body>
           </body>
         </body>
@@ -111,8 +111,8 @@
             <geom type="mesh" conaffinity="0" rgba="0.69804 0.69804 0.69804 1" mesh="RH_SHANK_LINK"/>
             <geom size="0.03" pos="0 0 -0.33" contype="0" conaffinity="0" group="1" density="0" rgba="0.2 0.2 0.2 1"/>
             <geom size="0.03" pos="0 0 -0.33" conaffinity="0" rgba="0.2 0.2 0.2 1"/>
-            <body name="RH_FOOT" pos="0 0 0">
-              <geom type="sphere" size="0.05" conaffinity="0" rgba="0.69804 0.69804 0.69804 1"/>
+            <body name="RH_FOOT" pos="0 0 -0.33">
+              <geom type="sphere" size="0.05" conaffinity="0" rgba="0.69804 0.69804 0.69804 1" friction="1.0 0.1 0.0"/>
             </body>
           </body>
         </body>

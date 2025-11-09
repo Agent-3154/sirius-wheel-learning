@@ -67,13 +67,14 @@ class PPOConfig:
 
     compile: bool = False
     phase: str = "train"
+    symaug: bool = True
 
     checkpoint_path: Union[str, None] = None
     in_keys: Tuple[str, ...] = (CMD_KEY, OBS_KEY, OBS_PRIV_KEY)
 
 cs = ConfigStore.instance()
 cs.store("ppo_atec", node=PPOConfig, group="algo")
-cs.store("ppo_atec_finetune", node=PPOConfig(phase="finetune"), group="algo")
+cs.store("ppo_atec_finetune", node=PPOConfig(phase="finetune", symaug=False), group="algo")
 
 
 class GRUModule(nn.Module):
@@ -151,12 +152,12 @@ class PPOPolicy(PPOBase):
             ["_priv"], ["_priv_feature"]
         ).to(self.device)
         self.actor_teacher = make_actor(["_cmd_policy", "_priv_feature"])
-        self.actor_student = make_actor(["_cmd_policy", "_priv_feature_est"])
+        self.actor_student = make_actor(["_cmd_policy", "priv_feature_est"])
         
         self.adapt_module = TDMod(
             GRUModule(output_dim=128),
             ["_cmd_policy", "is_init", "hx"],
-            ["_priv_feature_est", ("next", "hx")]
+            ["priv_feature_est", ("next", "hx")]
         ).to(self.device)
         
         self.critic = TDSeq(
@@ -244,7 +245,7 @@ class PPOPolicy(PPOBase):
         if self.cfg.phase == "train":
             policy = TDSeq(self.vecnorm, self.priv_encoder, self.actor_teacher)
         else:
-            policy = TDSeq(self.vecnorm, self.actor_student)
+            policy = TDSeq(self.vecnorm, self.adapt_module, self.actor_student)
         return policy
 
     @VecNorm.freeze()
@@ -320,15 +321,16 @@ class PPOPolicy(PPOBase):
         bsize = tensordict.shape[0]
         loc_old, scale_old = tensordict["loc"], tensordict["scale"]
 
-        symmetry = tensordict.empty()
-        symmetry[ACTION_KEY] = self.act_transform(tensordict[ACTION_KEY])
-        symmetry["_priv"] = self.priv_transform(tensordict["_priv"])
-        symmetry["_cmd_policy"] = self.input_transform(tensordict["_cmd_policy"])
-        symmetry["action_log_prob"] = tensordict["action_log_prob"]
-        symmetry["adv"] = tensordict["adv"]
-        symmetry["ret"] = tensordict["ret"]
-        symmetry["is_init"] = tensordict["is_init"]
-        tensordict = torch.cat([tensordict.select(*symmetry.keys(True, True)), symmetry], dim=0)
+        if self.cfg.symaug:
+            symmetry = tensordict.empty()
+            symmetry[ACTION_KEY] = self.act_transform(tensordict[ACTION_KEY])
+            symmetry["_priv"] = self.priv_transform(tensordict["_priv"])
+            symmetry["_cmd_policy"] = self.input_transform(tensordict["_cmd_policy"])
+            symmetry["action_log_prob"] = tensordict["action_log_prob"]
+            symmetry["adv"] = tensordict["adv"]
+            symmetry["ret"] = tensordict["ret"]
+            symmetry["is_init"] = tensordict["is_init"]
+            tensordict = torch.cat([tensordict.select(*symmetry.keys(True, True)), symmetry], dim=0)
 
         valid = (~tensordict["is_init"])
         valid_cnt = valid.sum()
@@ -363,28 +365,22 @@ class PPOPolicy(PPOBase):
         critic_grad_norm = nn.utils.clip_grad_norm_(self.critic.parameters(), self.max_grad_norm)
         opt.step()
         
-        with torch.no_grad():
-            explained_var = 1 - value_loss / b_returns[valid].var()
-            clipfrac = ((ratio - 1.0).abs() > self.clip_param).float().mean()
-            loc, scale = dist.loc[:bsize], dist.scale[:bsize]
-            kl = torch.sum(
-                torch.log(scale) - torch.log(scale_old)
-                + (torch.square(scale_old) + torch.square(loc_old - loc)) / (2.0 * torch.square(scale))
-                - 0.5,
-                axis=-1,
-            ).mean()
-            symmetry_loss = F.mse_loss(dist.mean[bsize:], self.act_transform(dist.mean[:bsize]))
-        return {
+        info = {
             "actor/policy_loss": policy_loss.detach(),
             "actor/entropy": entropy.detach(),
             "actor/grad_norm": actor_grad_norm,
-            "actor/clamp_ratio": clipfrac,
-            "actor/kl": kl,
-            "actor/symmetry_loss": symmetry_loss.detach(),
             "critic/value_loss": value_loss.detach(),
             "critic/grad_norm": critic_grad_norm,
-            "critic/explained_var": explained_var,
         }
+        with torch.no_grad():
+            info["critic/explained_var"] = 1 - value_loss / b_returns[valid].var()
+            info["actor/clamp_ratio"] = ((ratio - 1.0).abs() > self.clip_param).float().mean()
+            loc, scale = dist.loc[:bsize], dist.scale[:bsize]
+            info["actor/kl"] = IndependentNormal.kl(loc, scale, loc_old, scale_old).mean()
+            if self.cfg.symaug:
+                symmetry_loss = F.mse_loss(dist.mean[bsize:], self.act_transform(dist.mean[:bsize]))
+                info["actor/symmetry_loss"] = symmetry_loss
+        return info
     
     def train_adapt(self, tensordict: TensorDict):
         with torch.inference_mode():
@@ -396,7 +392,7 @@ class PPOPolicy(PPOBase):
             self.adapt_module(minibatch)
             valid = (~minibatch["is_init"])
             valid_cnt = valid.sum()
-            adapt_loss = torch.square(minibatch["_priv_feature_est"] - minibatch["_priv_feature"])
+            adapt_loss = torch.square(minibatch["priv_feature_est"] - minibatch["_priv_feature"]).mean(-1, keepdim=True)
             adapt_loss = (adapt_loss * valid).sum() / valid_cnt
             self.opt_adapt.zero_grad()
             adapt_loss.backward()
@@ -414,6 +410,9 @@ class PPOPolicy(PPOBase):
         failed_keys = super().load_state_dict(state_dict, strict=strict)
         if state_dict.get("last_phase", "train") == "train":
             hard_copy_(self.actor_teacher, self.actor_student)
+        if active_adaptation.is_distributed():
+            self.vecnorm[1].module.synchronize(mode="broadcast")
+            self.vecnorm[2].module.synchronize(mode="broadcast")
         return failed_keys
 
 
