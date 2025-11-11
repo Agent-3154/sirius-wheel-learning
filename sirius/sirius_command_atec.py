@@ -105,7 +105,7 @@ class SiriusATECCommand(Command):
             aux_input
         ],dim=-1)
     
-    def symmetry_transforms(self):
+    def symmetry_transform(self):
         return SymmetryTransform(
             perm=torch.arange(4),
             signs=torch.tensor([1, -1, -1, 1])

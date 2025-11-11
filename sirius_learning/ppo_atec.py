@@ -120,10 +120,10 @@ class PPOPolicy(PPOBase):
         
         fake_input = observation_spec.zero()
         
-        self.cmd_transform = env.observation_funcs[CMD_KEY].symmetry_transforms().to(self.device)
-        self.obs_transform = env.observation_funcs[OBS_KEY].symmetry_transforms().to(self.device)
-        self.priv_transform = env.observation_funcs[OBS_PRIV_KEY].symmetry_transforms().to(self.device)
-        self.act_transform = env.action_manager.symmetry_transforms().to(self.device)
+        self.cmd_transform = env.observation_funcs[CMD_KEY].symmetry_transform().to(self.device)
+        self.obs_transform = env.observation_funcs[OBS_KEY].symmetry_transform().to(self.device)
+        self.priv_transform = env.observation_funcs[OBS_PRIV_KEY].symmetry_transform().to(self.device)
+        self.act_transform = env.action_manager.symmetry_transform().to(self.device)
         self.input_transform = SymmetryTransform.cat([self.cmd_transform, self.obs_transform]).to(self.device)
         
         obs_cmd_dim = observation_spec[OBS_KEY].shape[-1] + observation_spec[CMD_KEY].shape[-1]
@@ -242,11 +242,15 @@ class PPOPolicy(PPOBase):
         )
     
     def get_rollout_policy(self, mode: str="train"):
-        if self.cfg.phase == "train":
-            policy = TDSeq(self.vecnorm, self.priv_encoder, self.actor_teacher)
+        if mode == "deploy":
+            vecnorm = self.vecnorm[:2]
         else:
-            policy = TDSeq(self.vecnorm, self.adapt_module, self.actor_student)
-        return policy
+            vecnorm = self.vecnorm
+        if self.cfg.phase == "train":
+            policy = TDSeq(vecnorm, self.priv_encoder, self.actor_teacher)
+        else:
+            policy = TDSeq(vecnorm, self.adapt_module, self.actor_student)
+        return policy.select_out_keys(ACTION_KEY, "loc", "scale", "action_log_prob", ("next", "hx"))
 
     @VecNorm.freeze()
     def train_op(self, tensordict: TensorDict):

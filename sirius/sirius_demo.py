@@ -349,7 +349,7 @@ class SiriusDemoCommand(Command):
         )
         return result
 
-    def symmetry_transforms(self):
+    def symmetry_transform(self):
         return SymmetryTransform.cat(
             [
                 SymmetryTransform(perm=torch.arange(3), signs=torch.tensor([1, -1, 1])),  # flip y
@@ -557,7 +557,7 @@ class sirius_joint_deviation(Observation[SiriusDemoCommand]):
     def compute(self) -> torch.Tensor:
         return self.cum_error
     
-    def symmetry_transforms(self):
+    def symmetry_transform(self):
         return SymmetryTransform(perm=torch.tensor([2, 3, 0, 1]), signs=torch.ones(4))
 
 

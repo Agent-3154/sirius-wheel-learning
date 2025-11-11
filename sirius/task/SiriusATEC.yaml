@@ -84,6 +84,7 @@ reward:
   joint_reg:
     joint_deviation_l2: {weight: 0.1}
     energy_l1:          {weight: 1.0e-4}
+    joint_vel_l2:       {weight: 1.0e-4, joint_names: .*_HFE}
     joint_acc_l2:       {weight: 1.0e-7}
     joint_torques_l2:   {weight: 5.0e-6}
     action_rate_l2:     {weight: 0.005}
@@ -130,7 +131,11 @@ randomization:
     pos_ranges:
       .*: [-0.2, 0.2]
     rel: true
-  # random_impulse: {}
+  random_impulse:
+    prob: 0.003
+    x_range: [40., 160.]
+    y_range: [40., 160.]
+    z_range: [0., 40.]
   # drive_model_properties:
   #   joint_names: .*_(HFE|KNEE)
   #   velocity_resistance_range: [0.0, 10.0]

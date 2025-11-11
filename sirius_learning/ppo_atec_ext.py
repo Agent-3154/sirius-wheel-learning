@@ -197,7 +197,7 @@ class PPOPolicy(TensorDictModuleBase):
         self.desired_kl = self.cfg.desired_kl
         self.clip_param = self.cfg.clip_param
         self.critic_loss_fn = nn.MSELoss(reduction="none")
-        self.action_dim = action_spec.shape[-1]
+        self.action_dim = action_spec[ACTION_KEY].shape[-1]
         self.aux_coef = self.cfg.aux_coef
         self.gae = GAE(0.99, 0.95)
         
@@ -207,10 +207,10 @@ class PPOPolicy(TensorDictModuleBase):
         proprio_shape = [fake_input[OBS_KEY].shape[-1] + fake_input[CMD_KEY].shape[-1],]
         terrain_shape = fake_input["terrain"].shape[-3:]
         
-        self.cmd_transform = env.observation_funcs[CMD_KEY].symmetry_transforms().to(self.device)
-        self.obs_transform = env.observation_funcs[OBS_KEY].symmetry_transforms().to(self.device)
-        self.terrain_transform = env.observation_funcs["terrain"].symmetry_transforms().to(self.device)
-        self.act_transform = env.action_manager.symmetry_transforms().to(self.device)
+        self.cmd_transform = env.observation_funcs[CMD_KEY].symmetry_transform().to(self.device)
+        self.obs_transform = env.observation_funcs[OBS_KEY].symmetry_transform().to(self.device)
+        self.terrain_transform = env.observation_funcs["terrain"].symmetry_transform().to(self.device)
+        self.act_transform = env.input_managers[ACTION_KEY].symmetry_transform().to(self.device)
 
         _actor = nn.Sequential(ResidualFC(256, 256), Actor(self.action_dim))
         actor_module = TensorDictSequential(
