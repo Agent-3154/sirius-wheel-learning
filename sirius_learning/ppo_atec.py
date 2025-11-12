@@ -250,7 +250,7 @@ class PPOPolicy(PPOBase):
             policy = TDSeq(vecnorm, self.priv_encoder, self.actor_teacher)
         else:
             policy = TDSeq(vecnorm, self.adapt_module, self.actor_student)
-        return policy.select_out_keys(ACTION_KEY, "loc", "scale", "action_log_prob", ("next", "hx"))
+        return policy#.select_out_keys(ACTION_KEY, "loc", "scale", "action_log_prob", ("next", "hx"))
 
     @VecNorm.freeze()
     def train_op(self, tensordict: TensorDict):
@@ -277,7 +277,7 @@ class PPOPolicy(PPOBase):
 
         self.vecnorm(tensordict)
         self.vecnorm(tensordict["next"])
-        self.compute_advantage(tensordict, self.critic, "adv", "ret")
+        self.compute_advantage(tensordict, self.critic, "adv", "ret", clamp_reward=False)
 
         action = tensordict[ACTION_KEY].clone()
         adv_unnormalized = tensordict["adv"]
