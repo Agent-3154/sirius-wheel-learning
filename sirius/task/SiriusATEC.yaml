@@ -72,18 +72,17 @@ observation:
 
 reward:
   loco:
+    _compile_: true
     linvel_exp:         {weight: 1.5}
     linvel_projection:  {weight: 0.5}
     angvel_z_exp:       {weight: 1.2}
     base_height_l1:     {weight: 3.0, target_height: null}
-    quadruped_trot:     {weight: 1.0, body_names: .*_FOOT}
-  body_reg:
     angvel_xy_l2:       {weight: 0.02}
     linvel_z_l2:        {weight: 0.5}
     root_upright:       {weight: 1.0}
     survival:           {weight: 1.0}
-    feet_sliding:       {weight: 0.5, body_names: .*FOOT}
   joint_reg:
+    _compile_: true
     joint_deviation_l2: {weight: 0.1}
     energy_l1:          {weight: 1.0e-4}
     joint_vel_l2:       {weight: 1.0e-4, joint_names: .*_HFE}
@@ -91,6 +90,9 @@ reward:
     joint_torques_l2:   {weight: 5.0e-6}
     action_rate_l2:     {weight: 0.005}
     action_rate2_l2:    {weight: 0.005}
+  contact_reg:
+    quadruped_trot:     {weight: 1.0, body_names: .*_FOOT}
+    feet_sliding:       {weight: 0.5, body_names: .*FOOT}
     undesired_contact:  {weight: 0.25, body_names: [.*thigh]}
     feet_air_time:      {weight: 0.25, body_names: .*_FOOT, thres: 0.4}
   debug:
