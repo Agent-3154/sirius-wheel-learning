@@ -16,6 +16,7 @@ from active_adaptation.utils.math import (
 )
 from active_adaptation.utils.symmetry import SymmetryTransform
 from typing import TYPE_CHECKING
+from typing_extensions import override
 
 
 if TYPE_CHECKING:
@@ -47,63 +48,62 @@ class TerrainInterface:
         return origin
 
 
-class SiriusATECCommand(Command):
-    def __init__(self, env, teleop: bool = False) -> None:
+class ATEC(Command):
+    def __init__(
+        self,
+        env,
+        linvel_x_range: tuple[float, float],
+        linvel_y_range: tuple[float, float],
+        stand_prob: float = 0.05,
+        teleop: bool = False
+    ) -> None:
         super().__init__(env, teleop)
-        
-        self.asset: Articulation = env.scene["robot"]
-        self.contact_sensor: ContactSensor = env.scene["contact_forces"]
-        self.terrain = TerrainInterface(self.env.scene.terrain)
+        self.linvel_x_range = linvel_x_range
+        self.linvel_y_range = linvel_y_range
+        self.stand_prob = stand_prob
+
+        self.asset: Articulation = self.env.scene["robot"]
+        # self.terrain = TerrainInterface(self.env.scene.terrain)
 
         with torch.device(self.device):
-            self.target_pos_w = torch.zeros(self.num_envs, 3)
-            self.target_vel_w = torch.zeros(self.num_envs, 3)
-            self.target_vel_b = torch.zeros(self.num_envs, 3)
-            self.target_ang_w = torch.zeros(self.num_envs, 1)
-            self.target_yaw_w = torch.zeros(self.num_envs, 3)
+            self.cmd_linvel_b = torch.zeros(self.num_envs, 3)
+            self.cmd_linvel_w = torch.zeros(self.num_envs, 3)
+            self.cmd_base_height = torch.zeros(self.num_envs, 1)
+            self.command_speed = torch.zeros(self.num_envs, 1)
+            self.next_command_linvel = torch.zeros(self.num_envs, 3)
+
+            self.target_yaw_w = torch.zeros(self.num_envs, 1)
+            self.target_yaw_vel_w = torch.zeros(self.num_envs, 1)
+
+            self.ref_yaw_w = torch.zeros(self.num_envs, 1)
+            self.ref_yaw_vel_w = torch.zeros(self.num_envs, 1)
+
             # command params
-            self.target_speed = torch.zeros(self.num_envs, 1)
             self.yaw_stiffness = torch.zeros(self.num_envs, 1)
-            # self.ref_pos_w = torch.zeros(self.num_envs, 3)
+            self.yaw_damping = torch.zeros(self.num_envs, 1)
+
             self.cmd_time_left = torch.zeros(self.num_envs, 1)
             self.cum_pos_error = torch.zeros(self.num_envs, 1)
 
-            if self.terrain.type == "generator":
-                subterrain_size = torch.tensor(self.terrain.size)
-                adjacent_directions = torch.tensor([
-                    [-1., +1.], [0., +1.], [1., +1.], 
-                    [-1.,  0.],            [1.,  0.], 
-                    [-1., -1.], [0., -1.], [1., -1.]
-                ])
-                self.adjacent_offsets = subterrain_size * adjacent_directions
+            # if self.terrain.type == "generator":
+            #     subterrain_size = torch.tensor(self.terrain.size)
+            #     adjacent_directions = torch.tensor([
+            #         [-1., +1.], [0., +1.], [1., +1.], 
+            #         [-1.,  0.],            [1.,  0.], 
+            #         [-1., -1.], [0., -1.], [1., -1.]
+            #     ])
+            #     self.adjacent_offsets = subterrain_size * adjacent_directions
             self.is_standing_env = torch.zeros(self.num_envs, 1, dtype=bool)
-
-            self.command_angvel = torch.zeros(self.num_envs, 1)
-            self.command_linvel = torch.zeros(self.num_envs, 3)
         self.seed = wp.rand_init(0)
-    
-    def sample_init(self, env_ids: torch.Tensor) -> torch.Tensor:
-        init_root_state = self.init_root_state[env_ids]
-        if self.terrain_type == "plane":
-            origins = self.env.scene.env_origins[env_ids]
-        else:
-            idx = torch.randint(0, len(self._origins), (len(env_ids),), device=self.device)
-            origins = self._origins[idx]
-        init_root_state[:, :3] += origins
-        init_root_state[:, 3:7] = quat_mul(
-            init_root_state[:, 3:7],
-            sample_quat_yaw(len(env_ids), device=self.device)
-        )
-        return init_root_state
     
     @property
     def command(self):
-        aux_input = torch.full((self.num_envs, 1), 0.3, device=self.device)
-        return torch.cat([
-            self.target_vel_b[:, :2],
-            self.target_ang_w,
-            aux_input
-        ],dim=-1)
+        result = torch.cat([
+            self.cmd_linvel_b[:, :2],
+            wrap_to_pi(self.ref_yaw_w - self.asset.data.heading_w.unsqueeze(1)),
+            self.cmd_base_height,
+        ], dim=-1)
+        return result
     
     def symmetry_transform(self):
         return SymmetryTransform(
@@ -111,122 +111,82 @@ class SiriusATECCommand(Command):
             signs=torch.tensor([1, -1, -1, 1])
         )
 
+    @override
     def reset(self, env_ids: torch.Tensor) -> None:
-        self.target_pos_w[env_ids] = self.asset.data.root_pos_w[env_ids]
-        # self.ref_pos_w[env_ids] = self.asset.data.root_pos_w[env_ids]
+        self.target_yaw_w[env_ids] = self.asset.data.heading_w[env_ids].unsqueeze(1)
+        self.ref_yaw_w[env_ids] = self.asset.data.heading_w[env_ids].unsqueeze(1)
+        self.ref_yaw_vel_w[env_ids] = 0.0
+        self.sample_command(env_ids)
 
+    @override
     def update(self):
-        self.root_link_pos_w = self.asset.data.root_link_pos_w
-        self.root_link_quat_w = self.asset.data.root_link_quat_w
-        self.root_heading_w = self.asset.data.heading_w
-        
-        wp.launch(
-            update_command,
-            self.num_envs,
-            inputs=[
-                wp.from_torch(self.root_link_pos_w, return_ctype=True),
-                wp.from_torch(self.root_link_quat_w.roll(-1, dims=1), return_ctype=True),
-                wp.from_torch(self.root_heading_w, return_ctype=True),
-                wp.from_torch(self.adjacent_offsets, return_ctype=True),
-                self.seed,
-            ],
-            outputs=[
-                wp.from_torch(self.target_pos_w, return_ctype=True),
-                wp.from_torch(self.target_vel_w, return_ctype=True),
-                wp.from_torch(self.target_vel_b, return_ctype=True),
-                wp.from_torch(self.target_ang_w, return_ctype=True),
-                wp.from_torch(self.target_speed, return_ctype=True),
-                wp.from_torch(self.yaw_stiffness, return_ctype=True),
-                wp.from_torch(self.cmd_time_left, return_ctype=True),
-            ]
+        ref_yaw_acc = (
+            self.yaw_stiffness * wrap_to_pi(self.target_yaw_w - self.ref_yaw_w)
+            + self.yaw_damping * (self.target_yaw_vel_w - self.ref_yaw_vel_w)
         )
-        self.seed = wp.rand_init(self.seed)
-        self.cmd_time_left.sub_(self.env.step_dt)
-        self.command_linvel = self.target_vel_b
-        self.command_angvel = self.target_ang_w
+        self.ref_yaw_vel_w.add_(self.env.step_dt * ref_yaw_acc)
+        self.ref_yaw_w.add_(self.env.step_dt * self.ref_yaw_vel_w)
+
+        resample_mask = (
+            (self.env.episode_length_buf % 200 == 0)
+            & (torch.rand(self.num_envs, device=self.device) < 0.75)
+        )
+        resample_ids = resample_mask.nonzero().squeeze(1)
+        if len(resample_ids):
+            self.sample_command(resample_ids)
         
+        self.cmd_linvel_b.lerp_(self.next_command_linvel, 0.1)
+        self.command_speed = self.cmd_linvel_b.norm(dim=-1, keepdim=True)
+        self.cmd_linvel_w = quat_rotate(yaw_quat(self.asset.data.root_link_quat_w), self.cmd_linvel_b)
+        self.is_standing_env = (self.command_speed < 0.1)
+    
+    def sample_command(self, env_ids: torch.Tensor):
+        self.target_yaw_vel_w[env_ids, 0] = sample_uniform(len(env_ids), -2.0, 2.0, self.device)
+        self.yaw_stiffness[env_ids, 0] = 0.0
+        self.yaw_damping[env_ids, 0] = 2.0
+
+        next_command_linvel = torch.zeros(len(env_ids), 3, device=self.device)
+        next_command_linvel[:, 0].uniform_(*self.linvel_x_range)
+        next_command_linvel[:, 1].uniform_(*self.linvel_y_range)
+        speed = next_command_linvel.norm(dim=-1, keepdim=True)
+        r = torch.rand(len(env_ids), 1, device=self.device) < self.stand_prob
+        valid = ~((speed < 0.10) | r)
+        self.next_command_linvel[env_ids] = next_command_linvel * valid
+
+        self.cmd_base_height[env_ids] = 0.45
+    
+    @override
     def debug_draw(self):
-        v = self.target_pos_w - self.root_link_pos_w
-        v[:, 2] = 0.0
-        self.env.debug_draw.vector(self.asset.data.root_pos_w, v, color=(1.0, 0.0, 0.0, 1.0))
+        if self.env.backend == "isaac":
+            yaw_vec = torch.zeros(self.num_envs, 3, device=self.device)
+            yaw_vec[:, 0:1] = self.ref_yaw_w.cos()
+            yaw_vec[:, 1:2] = self.ref_yaw_w.sin()
 
-        v = self.terrain.get_subterrain_origin(self.asset.data.root_pos_w) - self.asset.data.root_pos_w
-        v[:, 2] = 0.0
-        self.env.debug_draw.vector(self.asset.data.root_pos_w, v, color=(0.0, 1.0, 0.0, 1.0))
-
-
-@wp.kernel(enable_backward=False)
-def update_command(
-    # inputs
-    root_link_pos_w: wp.array(dtype=wp.vec3),
-    root_link_quat_w: wp.array(dtype=wp.quat),
-    root_heading_w: wp.array(dtype=wp.float32),
-    adjacent_offsets: wp.array(dtype=wp.vec3),
-    seed: wp.int32,
-    # outputs
-    target_pos_w: wp.array(dtype=wp.vec3),
-    target_vel_w: wp.array(dtype=wp.vec3),
-    target_vel_b: wp.array(dtype=wp.vec3),
-    target_ang_w: wp.array(dtype=wp.float32),
-    target_speed: wp.array(dtype=wp.float32),
-    yaw_stiffness: wp.array(dtype=wp.float32),
-    cmd_time_left: wp.array(dtype=wp.float32),
-):
-    tid = wp.tid()
-    seed_ = wp.rand_init(seed, tid)
-
-    pos_diff = target_pos_w[tid] - root_link_pos_w[tid]
-    pos_diff.z = 0.0
-    pos_error = wp.norm_l2(pos_diff)
-
-    if pos_error < 0.1:
-        i = wp.randi(seed_, 0, 8)
-        target_pos_w[tid] = target_pos_w[tid] + adjacent_offsets[i]
-        target_speed[tid] = wp.randf(seed_, 0.4, 1.8)
-        yaw_stiffness[tid] = wp.randf(seed_, 0.8, 1.4)
-
-    if cmd_time_left[tid] <= 0.0:
-        cmd_time_left[tid] = wp.randf(seed_, 0.2, 0.4)
-        target_vel_w[tid] = wp.normalize(pos_diff) * target_speed[tid]
-    
-    target_heading = wp.atan2(pos_diff[1], pos_diff[0])
-    heading_error = wrap_to_pi(target_heading - root_heading_w[tid])
-    target_vel_b[tid] = wp.quat_rotate_inv(root_link_quat_w[tid], target_vel_w[tid])
-    target_ang_w[tid] = yaw_stiffness[tid] * heading_error
+            self.env.debug_draw.vector(
+                self.asset.data.root_com_pos_w + torch.tensor([0.0, 0.0, 0.2], device=self.device),
+                yaw_vec,
+                color=(1.0, 1.0, 1.0, 1.0),
+            )
+            self.env.debug_draw.vector(
+                self.asset.data.root_link_pos_w
+                + torch.tensor([0.0, 0.0, 0.2], device=self.device),
+                self.cmd_linvel_w,
+                color=(1.0, 1.0, 1.0, 1.0),
+            )
 
 
-@wp.func
-def wrap_to_pi(angle: wp.float32) -> wp.float32:
-    wrapped_angle = (angle + wp.PI) % (2.0 * wp.PI)
-    if wrapped_angle == 0.0 and angle > 0.0:
-        return wp.PI
-    return wrapped_angle - wp.PI
+def sample_uniform(size, low: float, high: float, device: torch.device = "cuda"):
+    return torch.rand(size, device=device) * (high - low) + low
 
 
-class sirius_atec_vel(Reward[SiriusATECCommand]):
-    def __init__(self, env, weight: float):
-        super().__init__(env, weight)
-        self.asset = self.command_manager.asset
-    
-    def update(self):
-        self.root_lin_vel_w = self.asset.data.root_lin_vel_w
-        self.root_lin_vel_b = self.asset.data.root_lin_vel_b
-
-    def compute(self) -> torch.Tensor:
-        error = (self.command_manager.target_vel_w - self.root_lin_vel_w)[:, :2]
-        error = error.square().sum(dim=-1, keepdim=True)
-        rew = torch.exp(- error / 0.25)
-        return rew.reshape(self.num_envs, 1)
-
-
-class sirius_atec_yaw(Reward[SiriusATECCommand]):
+class yaw_cos(Reward[ATEC], namespace="sirius"):
     def __init__(self, env, weight: float):
         super().__init__(env, weight)
         self.asset = self.command_manager.asset
     
     def compute(self) -> torch.Tensor:
-        target_yaw = 0.0
-        yaw_cos = torch.cos(wrap_to_pi(target_yaw - self.asset.data.heading_w))
+        yaw_diff = wrap_to_pi(self.command_manager.ref_yaw_w - self.asset.data.heading_w.unsqueeze(1))
+        yaw_cos = torch.cos(yaw_diff)
         return yaw_cos.reshape(self.num_envs, 1)
 
 

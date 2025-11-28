@@ -25,7 +25,7 @@ input:
     _target_: active_adaptation.envs.mdp.action.JointPosition
     action_scaling: {.*_(HAA|HFE|KNEE): 0.6}
     max_delay: 1
-    alpha: [0.8, 0.9]
+    alpha_range: [0.8, 0.9]
   next_contact_pos_pred:
     _target_: active_adaptation.envs.mdp.action.Marker
     num_markers: 4
@@ -58,10 +58,10 @@ observation:
       include_xy: false,
       flatten: true,
     }
-  algo_:
-    root_pose_w: {}
-    contact_indicator: {body_names: .*_FOOT}
-    body_pos_w: {body_names: .*_FOOT}
+  # algo_:
+  #   root_pose_w: {}
+  #   contact_indicator: {body_names: .*_FOOT}
+  #   body_pos_w: {body_names: .*_FOOT}
 
 reward:
   loco:
