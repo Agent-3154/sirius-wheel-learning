@@ -26,10 +26,10 @@ input:
     action_scaling: {.*_(HAA|HFE|KNEE): 0.6}
     max_delay: 1
     alpha_range: [0.8, 0.9]
-  next_contact_pos_pred:
-    _target_: active_adaptation.envs.mdp.action.Marker
-    num_markers: 4
-    world_frame: false
+  # next_contact_pos_pred:
+  #   _target_: active_adaptation.envs.mdp.action.Marker
+  #   num_markers: 4
+  #   world_frame: false
 
 # command:
 #   class: Twist
@@ -56,13 +56,18 @@ observation:
     # root_angvel_b:
     projected_gravity_b: {noise_std: 0.05}
     joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
-    # joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
+    joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
     prev_actions: {steps: 3}
   priv:
     root_linvel_b:    {yaw_only: true}
     root_angvel_b:
-    joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
+    # joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
     body_height:      {body_names: .*_FOOT}
+  amp_:
+    command:
+    projected_gravity_b: {noise_std: 0.05}
+    joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
+    joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
   terrain:
     height_scan: {
       x_range: [-1.1, 1.1],
@@ -84,14 +89,11 @@ reward:
     sirius.yaw_cos:     {weight: 1.0}
     base_height_l1:     {weight: 3.0, target_height: null}
     quadruped_trot:     {weight: 1.0, body_names: .*_FOOT}
-  body_reg:
     angvel_xy_l2:       {weight: 0.02}
     linvel_z_l2:        {weight: 0.5}
     root_upright:       {weight: 1.0}
     survival:           {weight: 1.0}
-    feet_sliding:       {weight: 0.5, body_names: .*FOOT}
   joint_reg:
-    joint_deviation_l2: {weight: 0.1}
     energy_l1:          {weight: 1.0e-4}
     joint_vel_l2:       {weight: 1.0e-4, joint_names: .*_HFE}
     joint_acc_l2:       {weight: 1.0e-7}
@@ -99,7 +101,8 @@ reward:
     action_rate_l2:     {weight: 0.005}
     action_rate2_l2:    {weight: 0.005}
     undesired_contact:  {weight: 0.25, body_names: [.*thigh]}
-    feet_air_time:      {weight: 0.25, body_names: .*_FOOT, thres: 0.4}
+    feet_sliding:       {weight: 0.5, body_names: .*FOOT}
+    feet_air_time:      {weight: 0.4, body_names: .*_FOOT, thres: 0.7}
   debug:
     _enabled_: false
     feet_sliding:       {weight: 1.0, body_names: .*FOOT}
@@ -121,7 +124,6 @@ randomization:
     restitution_range:      [0.0, 0.5]
     homogeneous: true # ${task.homogeneous}
   motor_params:
-    actuator_name: all
     stiffness_range:  
       .*_HAA: [0.9, 1.1]
       .*_HFE: [0.9, 1.1]
@@ -130,12 +132,8 @@ randomization:
       .*_HAA: [0.9, 1.1]
       .*_HFE: [0.9, 1.1]
       .*_KNEE: [0.9, 1.1]
-    scale_factor_range:
-      .*_HAA: [0.9, 1.1]
-      .*_HFE: [0.9, 1.1]
-      .*_KNEE: [0.9, 1.1]
     armature_range:
-      .*: [0.0, 0.02]
+      .*: [0.001, 0.02]
   reset_joint_states_uniform:
     pos_ranges:
       .*: [-0.2, 0.2]
