@@ -95,6 +95,16 @@ class ATEC(Command):
             #     self.adjacent_offsets = subterrain_size * adjacent_directions
             self.is_standing_env = torch.zeros(self.num_envs, 1, dtype=bool)
         self.seed = wp.rand_init(0)
+
+        if self.env.sim.has_gui():
+            if self.env.backend == "isaac":
+                pass
+            elif self.env.backend == "mjlab":
+                from active_adaptation.viewer import MjLabViewer
+                self.viewer: MjLabViewer = self.env.sim.viewer
+                self.axes_handle = self.viewer.add_batched_axes("heading")
+                # self.lines_handle = self.viewer.add_line_segments("cmd_linvel_w", (1., 0., 0.))
+                # self.lines_handle.line_width = 2.0
     
     @property
     def command(self):
@@ -157,22 +167,28 @@ class ATEC(Command):
     
     @override
     def debug_draw(self):
+        start = self.asset.data.root_com_pos_w + torch.tensor([0.0, 0.0, 0.2], device=self.device)
         if self.env.backend == "isaac":
             yaw_vec = torch.zeros(self.num_envs, 3, device=self.device)
             yaw_vec[:, 0:1] = self.ref_yaw_w.cos()
             yaw_vec[:, 1:2] = self.ref_yaw_w.sin()
 
             self.env.debug_draw.vector(
-                self.asset.data.root_com_pos_w + torch.tensor([0.0, 0.0, 0.2], device=self.device),
+                start,
                 yaw_vec,
                 color=(1.0, 1.0, 1.0, 1.0),
             )
             self.env.debug_draw.vector(
-                self.asset.data.root_link_pos_w
-                + torch.tensor([0.0, 0.0, 0.2], device=self.device),
+                start,
                 self.cmd_linvel_w,
                 color=(1.0, 1.0, 1.0, 1.0),
             )
+        elif self.env.backend == "mjlab":
+            rpy = torch.zeros(self.num_envs, 3)
+            rpy[:, 2] = self.asset.data.heading_w.cpu()
+            self.axes_handle.batched_positions = start.cpu()
+            self.axes_handle.batched_wxyzs = quat_from_euler_xyz(rpy)
+            # self.lines_handle.points = torch.stack([start, start + self.cmd_linvel_w], 1).cpu()
 
 
 def sample_uniform(size, low: float, high: float, device: torch.device = "cuda"):

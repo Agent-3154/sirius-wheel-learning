@@ -174,3 +174,10 @@ SIRIUS_DIFF = AssetCfg(
 
 registry.register("asset", "sirius_wheel2", SIRIUS_WHEEL2_CFG)
 registry.register("asset", "sirius_diff", SIRIUS_DIFF)
+
+try:
+    from atec_rl_lab.assets.robots import UNITREE_B2_CFG, UNITREE_B2W_CFG
+    registry.register("asset", "unitree_b2", UNITREE_B2_CFG)
+    registry.register("asset", "unitree_b2w", UNITREE_B2W_CFG)
+except ImportError:
+    pass
