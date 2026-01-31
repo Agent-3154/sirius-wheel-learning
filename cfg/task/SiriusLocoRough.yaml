@@ -22,7 +22,7 @@ sim:
 
 input:
   action:
-    _target_: active_adaptation.envs.mdp.action.JointPosition
+    class: JointPosition
     action_scaling: {.*_(HAA|HFE|KNEE): 0.6}
     max_delay: 1
     alpha_range: [0.8, 0.9]
@@ -50,10 +50,10 @@ observation:
     joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
     joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
     prev_actions: {steps: 3}
-  terrain:
+  extero:
     height_scan: {
-      x_range: [-1.1, 1.1],
-      y_range: [-0.8, 0.8],
+      x_range: [-1.2, 1.2],
+      y_range: [-1.0, 1.0],
       resolution: [0.1, 0.1],
       flatten: false,
     }
@@ -68,7 +68,7 @@ reward:
     linvel_projection:  {weight: 0.5}
     angvel_z_exp:       {weight: 1.2}
     base_height_l1:     {weight: 2.0, target_height: 0.45}
-    quadruped_trot:     {weight: 1.0, body_names: .*_FOOT}
+    # quadruped_trot:     {weight: 1.0, body_names: .*_FOOT}
   body_reg:
     angvel_xy_l2:       {weight: 0.02}
     linvel_z_l2:        {weight: 0.5}
@@ -93,7 +93,7 @@ termination:
   # crash_leg(crash): {body_names_expr: [".*thigh", ".*calf"], t_thres: 0.02}
   crash_body(crash): {body_names_expr: ["(base|trunk)", ".*hip"], t_thres: 0.02}
   fall_over: {xy_thres: 0.9}
-  # cum_error: {thres: 0.9}
+  # root_pos_error: {threshold: 1.2, dim: 2}
 
 randomization:
   perturb_body_mass:

@@ -177,6 +177,36 @@ registry.register("asset", "sirius_diff", SIRIUS_DIFF)
 
 try:
     from atec_rl_lab.assets.robots import UNITREE_B2_CFG, UNITREE_B2W_CFG
+    from active_adaptation.assets.asset_cfg import ArticulationCfg, _ArticulationCfg
+    from dataclasses import fields
+    kwargs = {
+        field.name: getattr(UNITREE_B2_CFG, field.name) for
+        field in fields(_ArticulationCfg)
+    }
+    kwargs["joint_symmetry_mapping"] = mirrored({
+        "FL_hip_joint": (-1, "FR_hip_joint"),
+        "FL_thigh_joint": (1, "FR_thigh_joint"),
+        "FL_calf_joint": (1, "FR_calf_joint"),
+        "RL_hip_joint": (-1, "RR_hip_joint"),
+        "RL_thigh_joint": (1, "RR_thigh_joint"),
+        "RL_calf_joint": (1, "RR_calf_joint"),
+    })
+    UNITREE_B2_CFG = ArticulationCfg(**kwargs)
+    kwargs = {
+        field.name: getattr(UNITREE_B2W_CFG, field.name) for
+        field in fields(_ArticulationCfg)
+    }
+    kwargs["joint_symmetry_mapping"] = mirrored({
+        "FL_hip_joint": (-1, "FR_hip_joint"),
+        "FL_thigh_joint": (1, "FR_thigh_joint"),
+        "FL_calf_joint": (1, "FR_calf_joint"),
+        "RL_hip_joint": (-1, "RR_hip_joint"),
+        "RL_thigh_joint": (1, "RR_thigh_joint"),
+        "RL_calf_joint": (1, "RR_calf_joint"),
+        "FR_foot_joint": (1, "FL_foot_joint"),
+        "RR_foot_joint": (1, "RL_foot_joint"),
+    })
+    UNITREE_B2W_CFG = ArticulationCfg(**kwargs)
     registry.register("asset", "unitree_b2", UNITREE_B2_CFG)
     registry.register("asset", "unitree_b2w", UNITREE_B2W_CFG)
 except ImportError:

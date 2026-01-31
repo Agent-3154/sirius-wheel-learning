@@ -1,6 +1,6 @@
 # @package task
 project: sirius
-name: SiriusLoco
+name: B2WTaskD
 
 viewer:
   resolution: [1280, 720]
@@ -8,7 +8,7 @@ viewer:
   eye: [4.0, 4.0, 4.0]
 
 robot:
-  name: sirius_diff
+  name: unitree_b2w
 terrain: plane
 
 # common
@@ -22,10 +22,21 @@ sim:
 
 input:
   action:
-    class: JointPosition
-    action_scaling: {.*_(HAA|HFE|KNEE): 0.6}
-    max_delay: 1
-    alpha_range: [0.8, 0.9]
+    class: ConcatenatedAction
+    actions: [
+      {
+        class: JointPosition,
+        action_scaling: {.*_(hip|thigh|calf)_joint: 0.5},
+        max_delay: 2,
+        alpha_range: [0.8, 0.9],
+      },
+      {
+        class: JointVelocity,
+        action_scaling: {.*_foot_joint: 1.0},
+        max_delay: 2,
+        alpha_range: [0.8, 0.9],
+      }
+    ]
 
 command:
   class: Twist
@@ -41,15 +52,11 @@ observation:
   policy:
     command:
     root_linvel_b:    {yaw_only: true}
-    root_angvel_b:    {noise_std: 0.05}
+    root_angvel_b:
     projected_gravity_b: {noise_std: 0.05}
     joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
     joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
     prev_actions: {steps: 3}
-  # algo_:
-  #   root_pose_w: {}
-  #   contact_indicator: {body_names: .*_FOOT}
-  #   body_pos_w: {body_names: .*_FOOT}
 
 reward:
   loco:
@@ -57,13 +64,11 @@ reward:
     linvel_projection:  {weight: 0.5}
     angvel_z_exp:       {weight: 1.2}
     base_height_l1:     {weight: 2.0, target_height: 0.45}
-    # quadruped_trot:     {weight: 1.0, body_names: .*_FOOT}
-  body_reg:
     angvel_xy_l2:       {weight: 0.02}
     linvel_z_l2:        {weight: 0.5}
     root_upright:       {weight: 1.0}
     survival:           {weight: 1.0}
-    feet_sliding:       {weight: 0.5, body_names: .*FOOT}
+    undesired_contact:  {weight: 0.25, body_names: [.*thigh]}
   joint_reg:
     joint_deviation_l2: {weight: 0.1}
     energy_l1:          {weight: 1.0e-4}
@@ -71,39 +76,19 @@ reward:
     joint_torques_l2:   {weight: 5.0e-6}
     action_rate_l2:     {weight: 0.005}
     action_rate2_l2:    {weight: 0.005}
-    undesired_contact:  {weight: 0.25, body_names: [.*thigh]}
-    feet_air_time:      {weight: 0.2, body_names: .*_FOOT, thres: 0.4}
+  gait:
+    feet_sliding:       {weight: 0.5, body_names: .*foot}
+    feet_air_time:      {weight: 0.2, body_names: .*_foot, thres: 0.4}
   debug:
     _enabled_: false
-    feet_sliding:       {weight: 1.0, body_names: .*FOOT}
-    feet_contact_count: {weight: 1.0, body_names: .*FOOT}
+    feet_sliding:       {weight: 1.0, body_names: .*foot}
+    feet_contact_count: {weight: 1.0, body_names: .*foot}
 
 termination:
-  # crash_leg(crash): {body_names_expr: [".*thigh", ".*calf"], t_thres: 0.02}
-  crash_body(crash): {body_names_expr: ["(base|trunk)", ".*hip"], t_thres: 0.02}
+  crash_body(crash): {body_names_expr: ["base_link", ".*hip"], t_thres: 0.02}
   fall_over: {xy_thres: 0.9}
-  # cum_error: {thres: 0.9}
 
 randomization:
-  perturb_body_mass:
-    (?!(front|back)).*: [0.95, 1.1]
-  perturb_body_materials:
-    body_names: ".*_FOOT"
-    static_friction_range:  [0.5, 3.0]
-    dynamic_friction_range: [0.5, 3.0]
-    restitution_range:      [0.0, 0.5]
-    homogeneous: true # ${task.homogeneous}
-  motor_params:
-    stiffness_range:  
-      .*_HAA: [0.9, 1.1]
-      .*_HFE: [0.9, 1.1]
-      .*_KNEE: [0.9, 1.1]
-    damping_range:
-      .*_HAA: [0.9, 1.1]
-      .*_HFE: [0.9, 1.1]
-      .*_KNEE: [0.9, 1.1]
-    armature_range:
-      .*: [0.0, 0.02]
   reset_joint_states_uniform:
     pos_ranges:
       .*: [-0.2, 0.2]

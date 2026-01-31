@@ -22,14 +22,14 @@ sim:
 
 input:
   action:
-    _target_: active_adaptation.envs.mdp.action.JointPosition
+    class: JointPosition
     action_scaling: {.*_(HAA|HFE|KNEE): 0.6}
     max_delay: 1
     alpha_range: [0.8, 0.9]
   next_contact_pos_pred:
-    _target_: active_adaptation.envs.mdp.action.Marker
+    class: Marker
     num_markers: 4
-    world_frame: false
+    body_frame: true
 
 command:
   class: Twist
