@@ -1,0 +1,85 @@
+# @package task
+project: sirius
+name: B2TaskD
+
+viewer:
+  resolution: [1280, 720]
+  lookat: [0., 0., 0.]
+  eye: [4.0, 4.0, 4.0]
+
+robot:
+  name: unitree_b2
+terrain: atec_task_d
+
+# common
+num_envs: 4096
+max_episode_length: 1000
+
+sim:
+  step_dt: 0.02
+  isaac_physics_dt: 0.005
+  mujoco_physics_dt: 0.002
+
+input:
+  action:
+    class: JointPosition
+    action_scaling: {.*_joint: 0.5}
+    max_delay: 2
+    alpha_range: [0.8, 0.9]
+
+command:
+  class: ATECTaskDCommand
+
+observation:
+  policy:
+    command:
+    root_linvel_b:    {yaw_only: true}
+    root_angvel_b:
+    projected_gravity_b: {noise_std: 0.05}
+    joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
+    joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
+    prev_actions: {steps: 3}
+  extero:
+    height_scan: {
+      x_range: [-1.2, 1.2],
+      y_range: [-1.0, 1.0],
+      resolution: [0.1, 0.1],
+      flatten: false,
+    }
+
+reward:
+  loco:
+    linvel_exp:         {weight: 1.5, dim: 2}
+    linvel_projection:  {weight: 0.5}
+    get_over_platform:  {weight: 1.0}
+    angvel_z_exp:       {weight: 1.2}
+    base_height_l1:     {weight: 2.0, target_height: 0.45}
+    angvel_xy_l2:       {weight: 0.02}
+    linvel_z_l2:        {weight: 0.5}
+    root_upright:       {weight: 1.0}
+    survival:           {weight: 1.0}
+    undesired_contact:  {weight: 0.25, body_names: [.*thigh]}
+  joint_reg:
+    joint_deviation_l2: {weight: 0.1}
+    energy_l1:          {weight: 1.0e-4}
+    joint_acc_l2:       {weight: 1.0e-7}
+    joint_torques_l2:   {weight: 5.0e-6}
+    action_rate_l2:     {weight: 0.005}
+    action_rate2_l2:    {weight: 0.005}
+  gait:
+    feet_sliding:       {weight: 0.5, body_names: .*foot}
+    feet_air_time:      {weight: 0.2, body_names: .*_foot, thres: 0.4}
+  debug:
+    _enabled_: false
+    feet_sliding:       {weight: 1.0, body_names: .*foot}
+    feet_contact_count: {weight: 1.0, body_names: .*foot}
+
+termination:
+  crash_body(crash): {body_names_expr: ["base_link", ".*hip"], t_thres: 0.02}
+  fall_over: {xy_thres: 0.9}
+
+randomization:
+  reset_joint_states_uniform:
+    pos_ranges:
+      .*: [-0.2, 0.2]
+    rel: true

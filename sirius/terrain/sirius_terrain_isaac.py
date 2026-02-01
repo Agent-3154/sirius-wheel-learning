@@ -16,6 +16,7 @@ from isaaclab.utils import configclass
 import isaaclab.sim as sim_utils
 import numpy as np
 import random
+import copy
 
 from dataclasses import MISSING
 from .functional import platform_with_slope, pallet_with_platform, platform_with_stairs
@@ -177,3 +178,13 @@ ROUGH_TERRAIN_BASE_CFG = TerrainImporterCfg(
 registry.register("terrain", "sirius_demo", ROUGH_TERRAIN_BASE_CFG.replace(terrain_generator=SIRIUS_DEMO))
 registry.register("terrain", "sirius_atec", ROUGH_TERRAIN_BASE_CFG.replace(terrain_generator=SIRIUS_ATEC))
 registry.register("terrain", "sirius_stepping_stone", ROUGH_TERRAIN_BASE_CFG.replace(terrain_generator=SIRIUS_STEPPING_STONE))
+
+try:
+    from atec_rl_lab.tasks.task_d import TASK_D_TERRAIN_CFG
+    TASK_D_TERRAIN_CFG = copy.deepcopy(TASK_D_TERRAIN_CFG)
+    del TASK_D_TERRAIN_CFG.terrain_generator.sub_terrains["pit_and_platform"]
+    del TASK_D_TERRAIN_CFG.terrain_generator.sub_terrains["flat"]
+    # TASK_D_TERRAIN_CFG.debug_vis = True
+    registry.register("terrain", "atec_task_d", TASK_D_TERRAIN_CFG)
+except ImportError:
+    pass
