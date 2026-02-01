@@ -192,6 +192,7 @@ try:
         "RL_calf_joint": (1, "RR_calf_joint"),
     })
     UNITREE_B2_CFG = ArticulationCfg(**kwargs)
+    UNITREE_B2_CFG.spawn.articulation_props.enabled_self_collisions = False
     kwargs = {
         field.name: getattr(UNITREE_B2W_CFG, field.name) for
         field in fields(_ArticulationCfg)
@@ -207,6 +208,7 @@ try:
         "RR_foot_joint": (1, "RL_foot_joint"),
     })
     UNITREE_B2W_CFG = ArticulationCfg(**kwargs)
+    UNITREE_B2W_CFG.spawn.articulation_props.enabled_self_collisions = False
     registry.register("asset", "unitree_b2", UNITREE_B2_CFG)
     registry.register("asset", "unitree_b2w", UNITREE_B2W_CFG)
 except ImportError:
