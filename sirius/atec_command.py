@@ -1,7 +1,7 @@
 import torch
 from typing_extensions import override
 from active_adaptation.envs.mdp.base import Command, Reward
-from active_adaptation.utils.math import sample_quat_yaw, wrap_to_pi, quat_rotate_inverse, yaw_quat
+from active_adaptation.utils.math import quat_rotate, sample_quat_yaw, wrap_to_pi, quat_rotate_inverse, yaw_quat
 from active_adaptation.utils.symmetry import SymmetryTransform
 
 
@@ -25,7 +25,28 @@ class ATECTaskDCommand(Command):
             self.distance_traveled = torch.zeros(self.num_envs, 1)
             
             self.is_standing_env = torch.zeros(self.num_envs, 1, dtype=bool)
+            self.ref_height_offset = torch.stack([
+                torch.linspace(0.6, 0.9, 10),
+                torch.zeros(10),
+                torch.zeros(10),
+            ], dim=1)
+        
         self.update()
+        
+        if self.env.backend == "isaac" and self.env.sim.has_gui():
+            from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg, sim_utils
+            self.marker = VisualizationMarkers(
+                VisualizationMarkersCfg(
+                    prim_path=f"/Visuals/Command/ref_height",
+                    markers={
+                        "scandot": sim_utils.SphereCfg(
+                            radius=0.03,
+                            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.8, 0.8)),
+                        ),
+                    }
+                )
+            )
+            self.marker.set_visibility(True)
     
     @property
     def command(self):
@@ -59,7 +80,7 @@ class ATECTaskDCommand(Command):
     @override
     def reset(self, env_ids):
         cmd_linvel_w = torch.zeros(len(env_ids), 3, device=self.device)
-        cmd_linvel_w[:, 0].uniform_(0.3, 1.4)
+        cmd_linvel_w[:, 0].uniform_(0.3, 1.5)
         cmd_linvel_w[:, 1].uniform_(-0.5, 0.5)
         self.cmd_linvel_w[env_ids] = cmd_linvel_w
 
@@ -82,17 +103,44 @@ class ATECTaskDCommand(Command):
         self.distance_commanded = self.distance_commanded + self.command_speed * self.env.step_dt
         self.distance_traveled = self.distance_traveled + self.current_speed * self.env.step_dt
 
-        self.ref_height = self.env.get_ground_height_at(
-            self.asset.data.root_link_pos_w + torch.tensor([0.7, 0.0, 0.0], device=self.device)
-        ).reshape(self.num_envs, 1) + 0.4
+        self.ref_height_baseline = self.env.get_ground_height_at(
+            self.asset.data.root_link_pos_w.unsqueeze(1) + self.ref_height_offset
+        ).reshape(self.num_envs, 10)
+        self.ref_height_w = self.ref_height_baseline.mean(1, keepdim=True) + 0.4
+    
+    @override
+    def debug_draw(self):
+        if self.env.backend == "isaac" and self.env.sim.has_gui():
+            dots = self.asset.data.root_link_pos_w.unsqueeze(1) + self.ref_height_offset
+            dots[:, :, 2] = self.ref_height_baseline
+            self.marker.visualize(dots.reshape(-1, 3))
 
 
 class get_over_platform(Reward[ATECTaskDCommand]):
+    def __init__(self, env, weight: float):
+        super().__init__(env, weight)
+        self.asset = self.command_manager.asset
+        self.head_pos_w = torch.zeros(self.num_envs, 3, device=self.device)
+        self.head_linvel_w = torch.zeros(self.num_envs, 3, device=self.device)
+    
+    @override
+    def reset(self, env_ids: torch.Tensor) -> None:
+        self.head_pos_w[env_ids] = self.asset.data.root_link_pos_w[env_ids] + quat_rotate(
+            self.asset.data.root_link_quat_w[env_ids],
+            torch.tensor([[0.75, 0.0, 0.0]], device=self.device)
+        )
+
+    @override
+    def update(self) -> None:
+        head_pos_w = self.asset.data.root_link_pos_w + quat_rotate(
+            self.asset.data.root_link_quat_w,
+            torch.tensor([[0.75, 0.0, 0.0]], device=self.device)
+        )
+        self.head_linvel_w = (self.head_pos_w - head_pos_w) / self.env.step_dt
+        self.head_pos_w = head_pos_w
     
     @override
     def compute(self) -> torch.Tensor:
-        root_pos_w = self.command_manager.asset.data.root_pos_w
-        root_linvel_z = self.command_manager.asset.data.root_lin_vel_w[:, 2].reshape(self.num_envs, 1)
-        root_height = (root_pos_w[:, 2] - self.env.get_ground_height_at(root_pos_w)).reshape(self.num_envs, 1)
-        cmd_linvel_z = (self.command_manager.ref_height - root_height).clamp_min(0.0)
-        return (root_linvel_z - cmd_linvel_z).square().reshape(self.num_envs, 1)
+        rew = (self.head_pos_w[:, 2:3] - self.command_manager.ref_height_w).clamp_max(0.0)
+        valid = self.command_manager.ref_height_w > self.head_pos_w[:, 2:3]
+        return rew.reshape(self.num_envs, 1), valid.reshape(self.num_envs, 1)
