@@ -19,6 +19,10 @@ class ATECTaskDCommand(Command):
             self.target_yaw = torch.zeros(self.num_envs, 1)
             self.yaw_stiffness = torch.zeros(self.num_envs, 1)
             self.yaw_stiffness.fill_(1.0)
+
+            # curriculum
+            self.distance_commanded = torch.zeros(self.num_envs, 1)
+            self.distance_traveled = torch.zeros(self.num_envs, 1)
             
             self.is_standing_env = torch.zeros(self.num_envs, 1, dtype=bool)
         self.update()
@@ -46,12 +50,17 @@ class ATECTaskDCommand(Command):
         init_root_state = self.init_root_state[env_ids]
         init_root_state[:, :3] += origins
         init_root_state[:, 3:7] = sample_quat_yaw(len(env_ids), device=self.device)
+        self.env.extra["curriculum/distance_commanded"] = self.distance_commanded.mean()
+        self.env.extra["curriculum/distance_traveled"] = self.distance_traveled.mean()
+        self.distance_commanded[env_ids] = 0.0
+        self.distance_traveled[env_ids] = 0.0
         return init_root_state
 
     @override
     def reset(self, env_ids):
         cmd_linvel_w = torch.zeros(len(env_ids), 3, device=self.device)
-        cmd_linvel_w[:, 0].uniform_(0.3, 1.2)
+        cmd_linvel_w[:, 0].uniform_(0.3, 1.4)
+        cmd_linvel_w[:, 1].uniform_(-0.5, 0.5)
         self.cmd_linvel_w[env_ids] = cmd_linvel_w
 
     @override
@@ -69,6 +78,10 @@ class ATECTaskDCommand(Command):
             self.cmd_linvel_w
         )
         self.command_speed = self.cmd_linvel_b.norm(dim=-1, keepdim=True)
+        self.current_speed = self.asset.data.root_com_lin_vel_w.norm(dim=-1, keepdim=True)
+        self.distance_commanded = self.distance_commanded + self.command_speed * self.env.step_dt
+        self.distance_traveled = self.distance_traveled + self.current_speed * self.env.step_dt
+
         self.ref_height = self.env.get_ground_height_at(
             self.asset.data.root_link_pos_w + torch.tensor([0.7, 0.0, 0.0], device=self.device)
         ).reshape(self.num_envs, 1) + 0.4
