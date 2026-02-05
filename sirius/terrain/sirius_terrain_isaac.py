@@ -181,10 +181,16 @@ registry.register("terrain", "sirius_stepping_stone", ROUGH_TERRAIN_BASE_CFG.rep
 
 try:
     from atec_rl_lab.tasks.task_d import TASK_D_TERRAIN_CFG
+    from atec_rl_lab.tasks.task_d.terrain import PlatformTerrainCfg
     TASK_D_TERRAIN_CFG = copy.deepcopy(TASK_D_TERRAIN_CFG)
     del TASK_D_TERRAIN_CFG.terrain_generator.sub_terrains["pit_and_platform"]
-    del TASK_D_TERRAIN_CFG.terrain_generator.sub_terrains["flat"]
-    # TASK_D_TERRAIN_CFG.debug_vis = True
+    TASK_D_TERRAIN_CFG.terrain_generator.sub_terrains = {
+        "flat": MeshPlaneTerrainCfg(proportion=0.1),
+        "platform_0": PlatformTerrainCfg(proportion=0.4, platform_height_range=(0.1, 0.6)),
+        "pit": MeshPitTerrainCfg(proportion=0.2, pit_depth_range=(0.05, 0.20), platform_width=4.0),
+        "platform_1": PlatformTerrainCfg(proportion=0.3, platform_height_range=(0.1, 0.6)),
+    }
+    TASK_D_TERRAIN_CFG.terrain_generator.curriculum = True
     registry.register("terrain", "atec_task_d", TASK_D_TERRAIN_CFG)
 except ImportError:
     pass

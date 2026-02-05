@@ -29,6 +29,17 @@ input:
 
 command:
   class: ATECTaskDCommand
+  curriculum: true
+
+# command:
+#   class: Twist
+#   linvel_x_range: [-1.4, 1.4]
+#   linvel_y_range: [-1.0, 1.0]
+#   angvel_range: [-2.0, 2.0]
+#   yaw_stiffness_range: [0.5, 1.0]
+#   use_stiffness_ratio: 0.9
+#   stand_prob: 0.05
+#   curriculum: false
 
 observation:
   policy:
@@ -58,7 +69,6 @@ reward:
     linvel_z_l2:        {weight: 0.5}
     root_upright:       {weight: 1.0}
     survival:           {weight: 1.0}
-    undesired_contact:  {weight: 0.25, body_names: [.*thigh]}
   joint_reg:
     joint_deviation_l2: {weight: 0.1}
     energy_l1:          {weight: 1.0e-4}
@@ -75,8 +85,9 @@ reward:
     feet_contact_count: {weight: 1.0, body_names: .*foot}
 
 termination:
-  crash_body(crash): {body_names_expr: ["base_link", ".*hip"], t_thres: 0.02}
+  crash_body(crash): {body_names_expr: ["base_link", ".*hip"], t_thres: 0.05}
   fall_over: {xy_thres: 0.9}
+  undesired_contact: {body_names: ["base_link", .*thigh], thres: 1.0}
 
 randomization:
   reset_joint_states_uniform:
