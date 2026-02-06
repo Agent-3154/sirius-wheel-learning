@@ -9,7 +9,7 @@ viewer:
 
 robot:
   name: unitree_b2
-terrain: atec_task_d
+terrain: atec_task_d_2
 
 # common
 num_envs: 4096
@@ -60,14 +60,15 @@ observation:
 
 reward:
   loco:
-    linvel_exp:         {weight: 1.5, dim: 2}
-    linvel_projection:  {weight: 0.5}
-    get_over_platform:  {weight: 1.0}
-    angvel_z_exp:       {weight: 1.2}
-    base_height_l1:     {weight: 2.0, target_height: 0.45}
+    # linvel_exp:         {weight: 1.5, dim: 2}
+    # linvel_projection:  {weight: 0.5}
+    # get_over_platform:  {weight: 1.0}
+    # angvel_z_exp:       {weight: 1.2}
+    # base_height_l1:     {weight: 2.0, target_height: 0.45}
+    atec.free_walk:     {weight: 1.5}
     angvel_xy_l2:       {weight: 0.02}
     linvel_z_l2:        {weight: 0.5}
-    root_upright:       {weight: 1.0}
+    # root_upright:       {weight: 1.0}
     survival:           {weight: 1.0}
   joint_reg:
     joint_deviation_l2: {weight: 0.1}

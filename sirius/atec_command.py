@@ -88,6 +88,7 @@ class ATECTaskDCommand(Command):
         origins = self.terrain.env_origins[env_ids]
         init_root_state = self.init_root_state[env_ids]
         init_root_state[:, :3] += origins
+        init_root_state[:, 1] = torch.rand(len(env_ids), device=self.device) * 1.8 - 0.9
         init_root_state[:, 3:7] = sample_quat_yaw(len(env_ids), device=self.device)
         self.env.extra["curriculum/distance_commanded"] = self.distance_commanded.mean()
         self.env.extra["curriculum/distance_traveled"] = self.distance_traveled.mean()
@@ -97,7 +98,7 @@ class ATECTaskDCommand(Command):
 
     @override
     def reset(self, env_ids):
-        self.sample_command_0(env_ids)
+        self.sample_command_1(env_ids)
     
     def sample_command_0(self, env_ids: torch.Tensor):
         self.cmd_type[env_ids] = 0
@@ -115,14 +116,14 @@ class ATECTaskDCommand(Command):
 
     @override
     def update(self):
-        resample_mask = (
-            (self.env.episode_length_buf % 100 == 0)
-            & (torch.rand(self.num_envs, device=self.device) < 0.5)
-            & (self.cmd_type == 0).squeeze(1)
-        )
-        resample_ids = resample_mask.nonzero().squeeze(1)
-        if len(resample_ids):
-            self.sample_command_1(resample_ids)
+        # resample_mask = (
+        #     (self.env.episode_length_buf % 100 == 0)
+        #     & (torch.rand(self.num_envs, device=self.device) < 0.5)
+        #     & (self.cmd_type == 0).squeeze(1)
+        # )
+        # resample_ids = resample_mask.nonzero().squeeze(1)
+        # if len(resample_ids):
+        #     self.sample_command_1(resample_ids)
 
         self.body_heading_w = self.asset.data.heading_w.unsqueeze(1)
         yaw_diff = wrap_to_pi(self.target_yaw - self.body_heading_w).reshape(self.num_envs, 1)
@@ -162,6 +163,17 @@ class ATECTaskDCommand(Command):
             dots = self.asset.data.root_link_pos_w.unsqueeze(1) + self.ref_height_offset
             dots[:, :, 2] = self.ref_height_baseline
             self.marker.visualize(dots.reshape(-1, 3))
+
+
+class free_walk(Reward[ATECTaskDCommand], namespace="atec"):
+    def __init__(self, env, weight: float):
+        super().__init__(env, weight)
+        self.asset = self.command_manager.asset
+    
+    @override
+    def compute(self) -> torch.Tensor:
+        root_linvel_w = self.asset.data.root_com_lin_vel_w
+        return root_linvel_w[:, 0].reshape(self.num_envs, 1)
 
 
 class get_over_platform(Reward[ATECTaskDCommand]):
