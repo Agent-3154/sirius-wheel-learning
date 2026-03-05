@@ -209,7 +209,5 @@ try:
     })
     UNITREE_B2W_CFG = ArticulationCfg(**kwargs)
     UNITREE_B2W_CFG.spawn.articulation_props.enabled_self_collisions = False
-    registry.register("asset", "unitree_b2", UNITREE_B2_CFG)
-    registry.register("asset", "unitree_b2w", UNITREE_B2W_CFG)
 except ImportError:
     pass
