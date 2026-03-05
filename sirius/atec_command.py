@@ -3,7 +3,6 @@ from typing_extensions import override
 from active_adaptation.envs.mdp.base import Command, Reward
 from active_adaptation.utils.math import quat_rotate, sample_quat_yaw, wrap_to_pi, quat_rotate_inverse, yaw_quat
 from active_adaptation.utils.symmetry import SymmetryTransform
-from isaaclab.terrains import TerrainImporter
 
 
 class ATECTaskDCommand(Command):
@@ -17,7 +16,7 @@ class ATECTaskDCommand(Command):
         self.angvel_range = (-2.0, 2.0)
         self.curriculum = curriculum and self.env.backend == "isaac"
         
-        self.terrain: TerrainImporter = self.env.scene.terrain
+        self.terrain = self.env.scene.terrain
         assert self.terrain.cfg.terrain_type == "generator", "Curriculum is only supported for generator terrain"
         assert self.terrain.cfg.terrain_generator.curriculum, "Curriculum is not enabled for the terrain"
 
@@ -88,7 +87,7 @@ class ATECTaskDCommand(Command):
         origins = self.terrain.env_origins[env_ids]
         init_root_state = self.init_root_state[env_ids]
         init_root_state[:, :3] += origins
-        init_root_state[:, 1] = torch.rand(len(env_ids), device=self.device) * 1.8 - 0.9
+        # init_root_state[:, 1] = torch.rand(len(env_ids), device=self.device) * 1.8 - 0.9
         init_root_state[:, 3:7] = sample_quat_yaw(len(env_ids), device=self.device)
         self.env.extra["curriculum/distance_commanded"] = self.distance_commanded.mean()
         self.env.extra["curriculum/distance_traveled"] = self.distance_traveled.mean()
@@ -110,7 +109,7 @@ class ATECTaskDCommand(Command):
     def sample_command_1(self, env_ids: torch.Tensor):
         self.cmd_type[env_ids] = 1
         cmd_linvel_w = torch.zeros(len(env_ids), 3, device=self.device)
-        cmd_linvel_w[:, 0].uniform_(0.6, 1.4)
+        cmd_linvel_w[:, 0].uniform_(0.8, 2.0)
         cmd_linvel_w[:, 1].uniform_(-0.1, 0.1)
         self.cmd_linvel_w[env_ids] = cmd_linvel_w
 
@@ -165,7 +164,8 @@ class ATECTaskDCommand(Command):
             self.marker.visualize(dots.reshape(-1, 3))
 
 
-class free_walk(Reward[ATECTaskDCommand], namespace="atec"):
+class free_walk(Reward[ATECTaskDCommand]):
+    namespace = "atec"
     def __init__(self, env, weight: float):
         super().__init__(env, weight)
         self.asset = self.command_manager.asset
@@ -173,7 +173,8 @@ class free_walk(Reward[ATECTaskDCommand], namespace="atec"):
     @override
     def compute(self) -> torch.Tensor:
         root_linvel_w = self.asset.data.root_com_lin_vel_w
-        return root_linvel_w[:, 0].reshape(self.num_envs, 1)
+        rew = root_linvel_w[:, 0:1].clamp_max(self.command_manager.command_speed)
+        return rew.reshape(self.num_envs, 1)
 
 
 class get_over_platform(Reward[ATECTaskDCommand]):

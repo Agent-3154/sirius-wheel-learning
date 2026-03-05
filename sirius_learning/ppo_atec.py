@@ -28,7 +28,7 @@ import torch.distributions as D
 import torch.utils._pytree as pytree
 import functools
 
-from torchrl.data import CompositeSpec, TensorSpec, UnboundedContinuous
+from torchrl.data import Composite, TensorSpec, UnboundedContinuous
 from torchrl.modules import ProbabilisticActor
 from torchrl.envs.transforms import CatTensors, VecNorm, TensorDictPrimer
 from tensordict import TensorDict
@@ -100,8 +100,8 @@ class PPOPolicy(PPOBase):
     def __init__(
         self, 
         cfg: PPOConfig, 
-        observation_spec: CompositeSpec, 
-        action_spec: CompositeSpec, 
+        observation_spec: Composite, 
+        action_spec: Composite, 
         reward_spec: TensorSpec,
         device,
         env=None,

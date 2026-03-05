@@ -46,6 +46,13 @@ observation:
     joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
     joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
     prev_actions: {steps: 3}
+  extero:
+    height_scan: {
+      x_range: [-1.2, 1.2],
+      y_range: [-1.0, 1.0],
+      resolution: [0.1, 0.1],
+      flatten: false,
+    }
 
 reward:
   loco:

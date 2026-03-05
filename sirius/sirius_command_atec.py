@@ -195,7 +195,8 @@ def sample_uniform(size, low: float, high: float, device: torch.device = "cuda")
     return torch.rand(size, device=device) * (high - low) + low
 
 
-class yaw_cos(Reward[ATEC], namespace="sirius"):
+class yaw_cos(Reward[ATEC]):
+    namespace = "sirius"
     def __init__(self, env, weight: float):
         super().__init__(env, weight)
         self.asset = self.command_manager.asset

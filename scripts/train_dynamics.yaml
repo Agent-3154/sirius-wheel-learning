@@ -1,0 +1,30 @@
+hydra:
+  run:
+    dir: ./outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}-${task.name}-${algo.name}
+  job:
+    chdir: true
+
+backend: isaac
+device: cuda
+headless: true
+exp_name: ${oc.select:task.name,test}-${oc.select:algo.name,none}
+
+app:
+  headless: ${..headless}
+
+total_frames: 150_000_000
+save_interval: 100
+checkpoint_path: null
+
+wandb:
+  name: ${..exp_name}/${now:%m-%d}_${now:%H-%M}
+  job_type: train
+  project: ${oc.select:task.project,active_adaptation}
+  mode: online # set to 'disabled' when debugging locally
+  tags: []
+
+defaults:
+  - task: SiriusATEC
+  - algo: ppo_symaug
+  - model: simple_model
+  - _self_

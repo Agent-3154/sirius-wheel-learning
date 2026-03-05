@@ -22,7 +22,7 @@ sim:
 
 input:
   action:
-    _target_: active_adaptation.envs.mdp.action.JointPosition
+    _target_: JointPosition
     action_scaling: {.*_(HAA|HFE|KNEE): 0.6}
     max_delay: 1
     alpha_range: [0.8, 0.9]
@@ -43,28 +43,28 @@ input:
 #   curriculum: false
 
 command:
-  class: ATEC
+  _target_: ATEC
   linvel_x_range: [-1.4, 1.4]
   linvel_y_range: [-1.0, 1.0]
   stand_prob: 0.05
 
 observation:
-  command:
-    command:
+  # command:
   policy:
+    command: {}
     # root_linvel_b:    {yaw_only: true}
     # root_angvel_b:
     projected_gravity_b: {noise_std: 0.05}
     joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
     joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
     prev_actions: {steps: 3}
-  priv:
+  # priv:
     root_linvel_b:    {yaw_only: true}
-    root_angvel_b:
+    root_angvel_b:    {}
     # joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
     body_height:      {body_names: .*_FOOT}
   amp_:
-    command:
+    command:  {}
     projected_gravity_b: {noise_std: 0.05}
     joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
     joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
@@ -73,7 +73,6 @@ observation:
       x_range: [-1.1, 1.1],
       y_range: [-0.8, 0.8],
       resolution: [0.1, 0.1],
-      include_xy: false,
       flatten: true,
     }
   # algo_:
@@ -110,7 +109,7 @@ reward:
 
 termination:
   # crash_leg(crash): {body_names_expr: [".*thigh", ".*calf"], t_thres: 0.02}
-  crash_body(crash): {body_names_expr: [".*(base|trunk)", ".*hip"], t_thres: 0.02}
+  crash_body: {_target_: crash, body_names_expr: [".*(base|trunk)", ".*hip"], t_thres: 0.02}
   fall_over: {xy_thres: 0.9}
   # cum_error: {thres: 0.9}
 

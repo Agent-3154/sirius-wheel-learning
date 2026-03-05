@@ -29,14 +29,14 @@ import warnings
 import functools
 import torch.utils._pytree as pytree
 
-from torchrl.data import CompositeSpec, TensorSpec
+from torchrl.data import Composite, TensorSpec
 from torchrl.modules import ProbabilisticActor
 from torchrl.envs.transforms import CatTensors
 from tensordict import TensorDict
 from tensordict.nn import (
     TensorDictModuleBase,
     TensorDictModule as TDMod,
-    TensorDictSequential,
+    TensorDictSequential as TDSeq,
 )
 
 from hydra.core.config_store import ConfigStore
@@ -44,9 +44,8 @@ from dataclasses import dataclass
 from typing import Union, Tuple
 from collections import OrderedDict
 
-from active_adaptation.learning.utils.valuenorm import ValueNorm1, ValueNormFake
-from active_adaptation.learning.modules.distributions import IndependentNormal
-from active_adaptation.learning.modules.vecnorm import VecNorm
+from active_adaptation.learning.modules import IndependentNormal, VecNorm
+from active_adaptation.learning.utils.opt import OptimizerGroup
 from active_adaptation.learning.ppo.common import *
 from active_adaptation.utils.math import quat_rotate_inverse
 
@@ -68,14 +67,12 @@ class PPOConfig:
     desired_kl: Union[float, None] = 0.02
     clip_param: float = 0.2
     entropy_coef: float = 0.002
-    aux_coef: float = 0.2
 
-    value_norm: bool = False
+    muon: bool = False
     compile: bool = False
 
-    vecnorm: Union[str, None] = None
     checkpoint_path: Union[str, None] = None
-    in_keys: Tuple[str, ...] = (CMD_KEY, OBS_KEY, "terrain")
+    in_keys: Tuple[str, ...] = (CMD_KEY, OBS_KEY, "extero")
 
 cs = ConfigStore.instance()
 cs.store("ppo_atec_ext", node=PPOConfig, group="algo")
@@ -135,9 +132,6 @@ def label_future_contact(tensordict: TensorDict):
 class MixedEncoder(nn.Module):
     def __init__(self, proprio_shape: torch.Size, terrain_shape: torch.Size):
         super().__init__()
-        
-        self.mlp_norm = VecNorm(proprio_shape, proprio_shape, 1.0)
-        self.cnn_norm = VecNorm(terrain_shape, [terrain_shape[0], 1, 1], 1.0)
 
         self.mlp_encoder = nn.Sequential(
             nn.LazyLinear(256), nn.Mish(), nn.LayerNorm(256), 
@@ -164,8 +158,6 @@ class MixedEncoder(nn.Module):
         self.out = nn.Mish()
 
     def forward(self, mlp_inp, cnn_inp, mask_cnn=None):
-        mlp_inp = self.mlp_norm(mlp_inp)
-        cnn_inp = self.cnn_norm(cnn_inp)
         cnn_feature = self.cnn_encoder(cnn_inp)
         mlp_feature = self.mlp_encoder(mlp_inp)
         if mask_cnn is not None:
@@ -176,14 +168,11 @@ class MixedEncoder(nn.Module):
 
 class PPOPolicy(TensorDictModuleBase):
 
-    actor_in_keys = [CMD_KEY, OBS_KEY]
-    critic_in_keys = [CMD_KEY, OBS_KEY]
-
     def __init__(
         self, 
         cfg: PPOConfig, 
-        observation_spec: CompositeSpec, 
-        action_spec: CompositeSpec, 
+        observation_spec: Composite, 
+        action_spec: Composite, 
         reward_spec: TensorSpec,
         device,
         env=None,
@@ -197,26 +186,28 @@ class PPOPolicy(TensorDictModuleBase):
         self.desired_kl = self.cfg.desired_kl
         self.clip_param = self.cfg.clip_param
         self.critic_loss_fn = nn.MSELoss(reduction="none")
-        self.action_dim = action_spec[ACTION_KEY].shape[-1]
-        self.aux_coef = self.cfg.aux_coef
         self.gae = GAE(0.99, 0.95)
         
-        self.value_norm = ValueNormFake(input_shape=1).to(self.device)
-
         fake_input = observation_spec.zero()
-        proprio_shape = [fake_input[OBS_KEY].shape[-1] + fake_input[CMD_KEY].shape[-1],]
-        terrain_shape = fake_input["terrain"].shape[-3:]
+        proprio_shape = fake_input[OBS_KEY].shape[-1]
+        extero_shape = fake_input["extero"].shape[-3:]
+        self.action_dim = env.action_manager.action_dim
+
+        self.mlp_norm = VecNorm(proprio_shape, proprio_shape, 1.0)
+        self.cnn_norm = VecNorm(extero_shape, [extero_shape[0], 1, 1], 1.0)
         
-        self.cmd_transform = env.observation_funcs[CMD_KEY].symmetry_transform().to(self.device)
+        self.vecnorm = TDSeq(
+            TDMod(self.mlp_norm, [OBS_KEY], ["_obs_normed"]),
+            TDMod(self.cnn_norm, ["extero"], ["_extero_normed"]),
+        ).to(self.device)
+        
         self.obs_transform = env.observation_funcs[OBS_KEY].symmetry_transform().to(self.device)
-        self.terrain_transform = env.observation_funcs["terrain"].symmetry_transform().to(self.device)
+        self.extero_transform = env.observation_funcs["extero"].symmetry_transform().to(self.device)
         self.act_transform = env.input_managers[ACTION_KEY].symmetry_transform().to(self.device)
 
         _actor = nn.Sequential(ResidualFC(256, 256), Actor(self.action_dim))
-        actor_module = TensorDictSequential(
-            CatTensors(self.actor_in_keys, "_actor_input", del_keys=False, sort=False),
-            TDMod(MixedEncoder(proprio_shape, terrain_shape), ["_actor_input", "terrain"], ["feature"]),
-            TDMod(nn.LazyLinear(12), ["feature"], ["next_contact_pos_pred"]),
+        actor_module = TDSeq(
+            TDMod(MixedEncoder(proprio_shape, extero_shape), ["_obs_normed", "_extero_normed"], ["feature"]),
             TDMod(_actor, ["feature"], ["loc", "scale"])
         )
         self.actor: ProbabilisticActor = ProbabilisticActor(
@@ -230,17 +221,33 @@ class PPOPolicy(TensorDictModuleBase):
         _critic = nn.Sequential(ResidualFC(256, 256), nn.LazyLinear(1))
         self.critic = TDMod(_critic, ["feature"], ["state_value"]).to(self.device)
 
+        self.vecnorm(fake_input)
         self.actor(fake_input)
         self.critic(fake_input)
 
-        self.opt = torch.optim.Adam(
-            [
-                {"params": self.actor.parameters()},
-                {"params": self.critic.parameters()},
-            ],
-            lr=cfg.lr,
-            # weight_decay=0.02
-        )
+        def is_matrix_shaped(param: torch.Tensor) -> bool:
+            return param.dim() == 2
+
+        if self.cfg.muon:
+            muon = torch.optim.Muon([
+                {"params": [p for p in self.actor.parameters() if is_matrix_shaped(p)]},
+                {"params": [p for p in self.critic.parameters() if is_matrix_shaped(p)]},
+            ], lr=cfg.lr, adjust_lr_fn="match_rms_adamw", weight_decay=0.01)
+
+            adamw = torch.optim.AdamW([
+                {"params": [p for p in self.actor.parameters() if not is_matrix_shaped(p)]},
+                {"params": [p for p in self.critic.parameters() if not is_matrix_shaped(p)]},
+            ], lr=cfg.lr, weight_decay=0.01)
+            self.opt = OptimizerGroup([muon, adamw])
+        else:
+            self.opt = torch.optim.AdamW(
+                [
+                    {"params": self.actor.parameters()},
+                    {"params": self.critic.parameters()},
+                ],
+                lr=cfg.lr,
+                weight_decay=0.01
+            )
         
         def init_(module):
             if isinstance(module, nn.Linear):
@@ -254,11 +261,6 @@ class PPOPolicy(TensorDictModuleBase):
         self.critic.apply(init_)
 
         if active_adaptation.is_distributed():
-            distr.init_process_group(
-                backend="nccl",
-                world_size=active_adaptation.get_world_size(),
-                rank=active_adaptation.get_local_rank()
-            )
             if USE_DDP:
                 self.actor = DDP(self.actor)
                 self.critic = DDP(self.critic)
@@ -275,11 +277,16 @@ class PPOPolicy(TensorDictModuleBase):
             self.update = torch.compile(self.update, fullgraph=True)
             # self.update = CudaGraphModule(self.update)
     
-    def get_rollout_policy(self, mode: str="train"):
-        policy = TensorDictSequential(self.actor)
+    def on_stage_start(self, stage: str):
+        pass
+
+    def get_rollout_policy(self, mode: str="train", critic: bool=False):
+        if critic:
+            policy = TDSeq(self.vecnorm, self.actor, self.critic)
+        else:
+            policy = TDSeq(self.vecnorm, self.actor)
         if self.cfg.compile:
             policy = torch.compile(policy, fullgraph=True)
-            # policy = CudaGraphModule(policy)
         return policy
 
     @VecNorm.freeze()
@@ -287,10 +294,9 @@ class PPOPolicy(TensorDictModuleBase):
         assert VecNorm.FROZEN, "VecNorm must be frozen before training"
 
         tensordict = tensordict.exclude("stats", ("next", "stats"))
-        tensordict = label_future_contact(tensordict)
 
         infos = []
-        self._compute_advantage(tensordict, self.critic, "adv", "ret", update_value_norm=True)
+        self._compute_advantage(tensordict, self.critic, "adv", "ret")
         action = tensordict[ACTION_KEY]
         adv_unnormalized = tensordict["adv"].clone()
         log_probs_before = tensordict["action_log_prob"]
@@ -325,6 +331,9 @@ class PPOPolicy(TensorDictModuleBase):
         infos["critic/value_mean"] = tensordict["ret"].mean().item()
         infos["critic/value_var"] = tensordict["ret"].var().item()
         infos["critic/neg_rew_ratio"] = (tensordict[REWARD_KEY].sum(-1) <= 0.).float().mean().item()
+        if active_adaptation.is_distributed():
+            self.mlp_norm.synchronize(mode="broadcast")
+            self.cnn_norm.synchronize(mode="broadcast")
         return dict(sorted(infos.items()))
 
     @torch.no_grad()
@@ -334,13 +343,12 @@ class PPOPolicy(TensorDictModuleBase):
         critic: TDMod, 
         adv_key: str="adv",
         ret_key: str="ret",
-        update_value_norm: bool=True,
     ):
         keys = tensordict.keys(True, True)
         if not ("state_value" in keys and ("next", "state_value") in keys):
             with tensordict.view(-1) as tensordict_flat:
-                critic(tensordict_flat)
-                critic(tensordict_flat["next"])
+                critic(self.actor(self.vecnorm(tensordict_flat)))
+                critic(self.actor(self.vecnorm(tensordict_flat["next"])))
 
         values = tensordict["state_value"]
         next_values = tensordict["next", "state_value"]
@@ -349,13 +357,8 @@ class PPOPolicy(TensorDictModuleBase):
         discount = tensordict["next", "discount"]
         terms = tensordict[TERM_KEY]
         dones = tensordict[DONE_KEY]
-        values = self.value_norm.denormalize(values)
-        next_values = self.value_norm.denormalize(next_values)
 
         adv, ret = self.gae(rewards, terms, dones, values, next_values, discount)
-        if update_value_norm:
-            self.value_norm.update(ret)
-        ret = self.value_norm.normalize(ret)
 
         tensordict.set(adv_key, adv)
         tensordict.set(ret_key, ret)
@@ -375,6 +378,7 @@ class PPOPolicy(TensorDictModuleBase):
         # symmetry["ret"] = tensordict["ret"]
         # symmetry["is_init"] = tensordict["is_init"]
         # tensordict = torch.cat([tensordict.select(*symmetry.keys(True, True)), symmetry], dim=0)
+        self.vecnorm(tensordict)
 
         valid = (~tensordict["is_init"])
         valid_cnt = valid.sum()
@@ -394,20 +398,12 @@ class PPOPolicy(TensorDictModuleBase):
         policy_loss = - (torch.min(surr1, surr2).reshape_as(valid) * valid).sum() / valid_cnt
         entropy_loss = - self.entropy_coef * entropy
 
-        has_future_contact = tensordict["has_future_contact"].reshape(-1, 4) & valid.reshape(-1, 1)
-        aux_loss = (
-            tensordict["next_contact_pos_pred"].reshape(-1, 4, 3)
-            - tensordict["next_contact_pos_b"].reshape(-1, 4, 3)
-        ).square().sum(-1)
-        aux_loss = aux_loss * has_future_contact
-        aux_loss = aux_loss.sum() / has_future_contact.sum()
-
         b_returns = tensordict["ret"]
         values = self.critic(tensordict)["state_value"]
         value_loss = self.critic_loss_fn(b_returns, values)
         value_loss = (value_loss.reshape_as(valid) * valid).sum() / valid_cnt
 
-        loss = policy_loss + entropy_loss + value_loss + self.aux_coef * aux_loss
+        loss = policy_loss + entropy_loss + value_loss
         self.opt.zero_grad()
         loss.backward()
 
@@ -435,7 +431,6 @@ class PPOPolicy(TensorDictModuleBase):
             "actor/grad_norm": actor_grad_norm,
             "actor/clamp_ratio": clipfrac,
             "actor/kl": kl,
-            "actor/aux_loss": aux_loss.detach(),
             # "actor/symmetry_loss": symmetry_loss.detach(),
             "critic/value_loss": value_loss.detach(),
             "critic/grad_norm": critic_grad_norm,

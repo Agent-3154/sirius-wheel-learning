@@ -1,6 +1,6 @@
 # @package task
 project: ATEC
-name: B2TaskD
+name: A2TaskD
 
 viewer:
   resolution: [1280, 720]
@@ -8,7 +8,7 @@ viewer:
   eye: [4.0, 4.0, 4.0]
 
 robot:
-  name: unitree_b2
+  name: a2
 terrain: atec_task_d_2
 
 # common

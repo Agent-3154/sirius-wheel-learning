@@ -1,4 +1,5 @@
 import active_adaptation
+import trimesh
 from active_adaptation.registry import Registry
 
 from isaaclab.terrains import (
@@ -13,6 +14,7 @@ from isaaclab.terrains import (
     HfSteppingStonesTerrainCfg,
 )
 from isaaclab.utils import configclass
+from isaaclab.terrains.trimesh.mesh_terrains import flat_terrain
 import isaaclab.sim as sim_utils
 import numpy as np
 import random
@@ -59,6 +61,139 @@ class PalletWithPlatformCfg(SubTerrainBaseCfg):
     board_width_range: tuple[float, float] = (0.1, 0.2)
     interval_range: tuple[float, float] = (0.05, 0.1)
     num_stringers: int = 4
+
+
+def ramp_terrain(difficulty: float, cfg: "RampTerrainCfg"):
+    height = cfg.height_range[0] + (cfg.height_range[1] - cfg.height_range[0]) * difficulty
+    
+    mesh = trimesh.creation.box(extents=(cfg.size[0], cfg.size[1], height))
+
+    up = np.random.rand() > 0.5
+    if up:
+        # remove the bottom face
+        bottom_faces = np.where(mesh.triangles_center[:, 2] <= -height / 2)
+        mesh.faces = np.delete(mesh.faces, bottom_faces, axis=0)
+        # bevel top edges
+        top_vertices = mesh.vertices[mesh.vertices[:, 2] >= height / 2]
+        top_vertices[:, 0] *= 0.5
+        mesh.vertices[mesh.vertices[:, 2] >= height / 2] = top_vertices
+        mesh.vertices[:, 2] += height / 2
+        origin = np.array([cfg.size[0] / 2, cfg.size[1] / 2, height])
+    else:
+        # remove the top face
+        top_faces = np.where(mesh.triangles_center[:, 2] >= height / 2)
+        mesh.faces = np.delete(mesh.faces, top_faces, axis=0)
+        # bevel bottom edges
+        bottom_vertices = mesh.vertices[mesh.vertices[:, 2] <= -height / 2]
+        bottom_vertices[:, 0] *= 0.5
+        mesh.vertices[mesh.vertices[:, 2] <= -height / 2] = bottom_vertices
+        mesh.vertices[:, 2] -= height / 2
+        origin = np.array([cfg.size[0] / 2, cfg.size[1] / 2, -height])
+        # flip the normals for correct collision
+        mesh.faces = np.fliplr(mesh.faces)
+    # center the mesh
+    mesh.vertices += np.array([cfg.size[0] / 2, cfg.size[1] / 2, 0.0])
+    return [mesh], origin
+
+
+@configclass
+class RampTerrainCfg(SubTerrainBaseCfg):
+    function = ramp_terrain
+    height_range: tuple[float, float] = MISSING
+
+
+def room_terrain(difficulty: float, cfg: "RoomTerrainCfg"):
+    mesh_list, origin = flat_terrain(difficulty, cfg)
+    wall_0 = trimesh.creation.box(extents=(4.0, 0.4, 1.0))
+    wall_0.apply_translation(np.array([2.0, 0.2, 0.5]))
+   
+    wall_1 = wall_0.copy()
+    wall_1.apply_transform(
+        trimesh.transformations.transform_around(
+            matrix=trimesh.transformations.rotation_matrix(
+                angle=np.pi / 2,
+                direction=np.array([0.0, 0.0, 1.0]),
+            ),
+            point=np.array([cfg.size[0] / 2, cfg.size[1] / 2, 0.0]),
+        )
+    )
+    mesh_list.append(wall_0)
+    mesh_list.append(wall_1)
+    return mesh_list, origin
+
+
+@configclass
+class RoomTerrainCfg(SubTerrainBaseCfg):
+    function = room_terrain
+
+
+
+def double_prism(difficulty: float, cfg):
+    height_scale = cfg.height_range[0] + (cfg.height_range[1] - cfg.height_range[0]) * difficulty
+    sink = np.random.uniform(cfg.sink_range[0], cfg.sink_range[1])
+    sink = np.clip(sink, 0.0, height_scale)
+
+    meshes = []
+    prism_0 = trimesh.creation.extrude_triangulation(
+        vertices=np.array([[0., 0.], [0., 1.], [2., 0.]]),
+        faces=np.array([[0, 1, 2]]),
+        height=1,
+    )
+    # prism_0.apply_translation(np.array([-1., 0., 0.]))
+    prism_0.apply_transform(
+        trimesh.transformations.rotation_matrix(
+            angle=np.pi / 2,
+            direction=np.array([1, 0, 0])
+        )
+    )
+    prism_0.apply_translation([-0.5, -0.5, 0.])
+    meshes.append(prism_0)
+
+    prism_1 = trimesh.creation.extrude_triangulation(
+        vertices=np.array([[0., 0.], [0., -1.], [-2., 0.]]),
+        faces=np.array([[0, 1, 2]]),
+        height=1
+    )
+    # prism_1.apply_translation(np.array([1., 0., 0.]))
+    prism_1.apply_transform(
+        trimesh.transformations.rotation_matrix(
+            angle=-np.pi / 2,
+            direction=np.array([1, 0, 0])
+        )
+    )
+    prism_1.apply_translation([0.5, 0.5, 0.])
+    meshes.append(prism_1)
+
+    box_0 = trimesh.creation.box(
+        extents=(3.0, 1.0, 1.0),
+        transform=trimesh.transformations.translation_matrix([0.0, 0.0, 0.5]),
+    )
+    meshes.append(box_0)
+    box_1 = trimesh.creation.box(
+        extents=(1.0, 1.0, 1.0),
+        transform=trimesh.transformations.translation_matrix([1.0, 1.0, 0.5]),
+    )
+    meshes.append(box_1)
+    box_2 = trimesh.creation.box(
+        extents=(1.0, 1.0, 1.0),
+        transform=trimesh.transformations.translation_matrix([-1.0, -1.0, 0.5]),
+    )
+    meshes.append(box_2)
+
+    # Combine meshes
+    mesh: trimesh.Trimesh = trimesh.util.concatenate(meshes)
+    mesh.merge_vertices()
+    mesh.apply_translation([1.5, 1.5, -sink])
+    mesh.apply_scale(np.array([cfg.size[0] / 3, cfg.size[1] / 3, height_scale]))
+    origin = np.array([cfg.size[0] / 2, cfg.size[1] / 2, height_scale - sink])
+    return [mesh], origin
+
+
+@configclass
+class DoublePrismCfg(SubTerrainBaseCfg):
+    function = double_prism
+    height_range = (1.0, 2.0)
+    sink_range = (0.1, 0.2)
 
 
 SIRIUS_DEMO = TerrainGeneratorCfg(
@@ -182,6 +317,11 @@ registry.register("terrain", "sirius_stepping_stone", ROUGH_TERRAIN_BASE_CFG.rep
 try:
     from atec_rl_lab.tasks.task_d import TASK_D_TERRAIN_CFG
     from atec_rl_lab.tasks.task_d.terrain import PlatformTerrainCfg, PitAndPlatformTerrainCfg
+    TASK_D_TERRAIN_CFG.terrain_generator.num_rows = 10
+    TASK_D_TERRAIN_CFG.terrain_generator.num_cols = 20
+    TASK_D_TERRAIN_CFG.terrain_generator.border_width = 50.0
+    TASK_D_TERRAIN_CFG.max_init_terrain_level = None
+
     TASK_D_TERRAIN_CFG_1 = copy.deepcopy(TASK_D_TERRAIN_CFG)
     TASK_D_TERRAIN_CFG_2 = copy.deepcopy(TASK_D_TERRAIN_CFG)
     TASK_D_TERRAIN_CFG_1.terrain_generator.sub_terrains = {
@@ -192,7 +332,7 @@ try:
     }
     TASK_D_TERRAIN_CFG_2.terrain_generator.sub_terrains = {
         # "platform": PlatformTerrainCfg(proportion=0.3, platform_height_range=(0.1, 0.4)),
-        "pit_and_platform": PitAndPlatformTerrainCfg(proportion=0.7, pit_depth=0.2, border_width=0.5),
+        "pit_and_platform": PitAndPlatformTerrainCfg(proportion=0.7, border_width=0.5),
     }
     TASK_D_TERRAIN_CFG_1.terrain_generator.curriculum = True
     TASK_D_TERRAIN_CFG_2.terrain_generator.curriculum = True
