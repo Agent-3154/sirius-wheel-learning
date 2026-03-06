@@ -1,9 +1,11 @@
 import torch
-from typing_extensions import override
+from typing_extensions import override, TYPE_CHECKING
 from active_adaptation.envs.mdp.base import Command, Reward
 from active_adaptation.utils.math import quat_rotate, sample_quat_yaw, wrap_to_pi, quat_rotate_inverse, yaw_quat
 from active_adaptation.utils.symmetry import SymmetryTransform
 
+if TYPE_CHECKING:
+    from active_adaptation.envs.terrain import BetterTerrainImporter, BetterTerrainGenerator
 
 class ATECTaskDCommand(Command):
     def __init__(
@@ -16,9 +18,23 @@ class ATECTaskDCommand(Command):
         self.angvel_range = (-2.0, 2.0)
         self.curriculum = curriculum and self.env.backend == "isaac"
         
-        self.terrain = self.env.scene.terrain
+        self.terrain: BetterTerrainImporter = self.env.scene.terrain
         assert self.terrain.cfg.terrain_type == "generator", "Curriculum is only supported for generator terrain"
-        assert self.terrain.cfg.terrain_generator.curriculum, "Curriculum is not enabled for the terrain"
+        # assert self.terrain.cfg.terrain_generator.curriculum, "Curriculum is not enabled for the terrain"
+        self.terrain_generator: BetterTerrainGenerator = self.terrain.terrain_generator
+        
+        self.sub_terrain_types = self.terrain_generator.sub_terrain_types
+        self.sub_terrain_type_mapping = self.terrain_generator.sub_terrain_type_mapping
+        self.num_cols = self.terrain_generator.num_cols
+        # For pit_and_platform with left_right_ratio=(1,0): platform at 0.25, box at 0.75; origin at (0.15*sx, 0.5*sy, 0)
+        terrain_size = self.terrain_generator.cfg.size
+        self._step_target_offset = torch.tensor(
+            [0.35 * terrain_size[0], 0.25 * terrain_size[1], 0.0],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        self._pit_and_platform_idx = self.sub_terrain_type_mapping.get("pit_and_platform", -1)
+        self._pit_cmd_speed = 1.0  # forward speed when commanding toward step target or past it
 
         with torch.device(self.device):
             self.cmd_type = torch.zeros(self.num_envs, 1, dtype=torch.int32)
@@ -42,9 +58,10 @@ class ATECTaskDCommand(Command):
                 torch.zeros(10),
                 torch.zeros(10),
             ], dim=1)
-        
+            self.step_target_w = torch.zeros(self.num_envs, 3, device=self.device)
+
         self.update()
-        
+
         if self.env.backend == "isaac" and self.env.sim.has_gui():
             from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg, sim_utils
             self.marker = VisualizationMarkers(
@@ -59,6 +76,18 @@ class ATECTaskDCommand(Command):
                 )
             )
             self.marker.set_visibility(True)
+            self.step_target_marker = VisualizationMarkers(
+                VisualizationMarkersCfg(
+                    prim_path="/Visuals/Command/step_target",
+                    markers={
+                        "target": sim_utils.SphereCfg(
+                            radius=0.08,
+                            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.4, 0.0)),
+                        ),
+                    }
+                )
+            )
+            self.step_target_marker.set_visibility(True)
     
     @property
     def command(self):
@@ -76,14 +105,14 @@ class ATECTaskDCommand(Command):
 
     @override
     def sample_init(self, env_ids):
-        if self.curriculum and self.env.episode_count > 1:
-            distance_traveled = self.distance_traveled[env_ids]
-            distance_commanded = self.distance_commanded[env_ids].clamp_min(1.0)
-            move_up = distance_traveled > distance_commanded * 0.8
-            move_down = distance_traveled < distance_commanded * 0.4
-            move_up = move_up & ~move_down
-            self.terrain.update_env_origins(env_ids, move_up.squeeze(-1), move_down.squeeze(-1))
-            self.env.extra["curriculum/terrain_level"] = self.terrain.terrain_levels.float().mean()
+        # if self.curriculum and self.env.episode_count > 1:
+        #     distance_traveled = self.distance_traveled[env_ids]
+        #     distance_commanded = self.distance_commanded[env_ids].clamp_min(1.0)
+        #     move_up = distance_traveled > distance_commanded * 0.8
+        #     move_down = distance_traveled < distance_commanded * 0.4
+        #     move_up = move_up & ~move_down
+        #     self.terrain.update_env_origins(env_ids, move_up.squeeze(-1), move_down.squeeze(-1))
+        #     self.env.extra["curriculum/terrain_level"] = self.terrain.terrain_levels.float().mean()
         # sample robot initial state
         origins = self.terrain.env_origins[env_ids]
         init_root_state = self.init_root_state[env_ids]
@@ -105,32 +134,38 @@ class ATECTaskDCommand(Command):
 
     @override
     def reset(self, env_ids):
-        self.sample_command_1(env_ids)
-    
-    def sample_command_0(self, env_ids: torch.Tensor):
-        self.cmd_type[env_ids] = 0
-        cmd_linvel_b = torch.zeros(len(env_ids), 3, device=self.device)
-        cmd_linvel_b[:, 0].uniform_(-1.4, 1.4)
-        cmd_linvel_b[:, 1].uniform_(-1.0, 1.0)
-        self.cmd_linvel_b[env_ids] = cmd_linvel_b
-
-    def sample_command_1(self, env_ids: torch.Tensor):
-        self.cmd_type[env_ids] = 1
-        cmd_linvel_w = torch.zeros(len(env_ids), 3, device=self.device)
-        cmd_linvel_w[:, 0].uniform_(0.8, 2.0)
-        cmd_linvel_w[:, 1].uniform_(-0.1, 0.1)
-        self.cmd_linvel_w[env_ids] = cmd_linvel_w
+        pass
 
     @override
     def update(self):
-        # resample_mask = (
-        #     (self.env.episode_length_buf % 100 == 0)
-        #     & (torch.rand(self.num_envs, device=self.device) < 0.5)
-        #     & (self.cmd_type == 0).squeeze(1)
-        # )
-        # resample_ids = resample_mask.nonzero().squeeze(1)
-        # if len(resample_ids):
-        #     self.sample_command_1(resample_ids)
+        # For pit_and_platform terrains: command (vx, vy, v_yaw) toward the virtual step target
+        # (where the box would be) so the robot learns to cross the gap by stepping on it.
+        
+        root_pos_w = self.asset.data.root_link_pos_w
+        terrain_origin_ids = self.terrain_generator.get_terrain_origin_id(root_pos_w)
+        terrain_types = self.sub_terrain_types.to(self.device)[terrain_origin_ids]
+        origins_flat = self.terrain.terrain_origins.reshape(-1, 3).to(self.device)
+        terrain_origins = origins_flat[terrain_origin_ids]
+        is_pit_env = (terrain_types == self._pit_and_platform_idx).unsqueeze(1)
+
+        self.step_target_w = terrain_origins + self._step_target_offset
+            
+        delta_xy = self.step_target_w[:, :2] - root_pos_w[:, :2]
+        dist_to_target = delta_xy.norm(dim=-1, keepdim=True).clamp_min(1e-4)
+        past_box = (root_pos_w[:, 0:1] > self.step_target_w[:, 0:1] + 0.2)
+        # Phase 1: velocity toward step target; Phase 2: forward (+x)
+        dir_xy = delta_xy / dist_to_target
+        cmd_linvel_pit = torch.zeros(self.num_envs, 3, device=self.device)
+        cmd_linvel_pit[:, :2] = dir_xy * self._pit_cmd_speed
+        cmd_linvel_forward = torch.zeros(self.num_envs, 3, device=self.device)
+        cmd_linvel_forward[:, 0] = self._pit_cmd_speed
+        desired_vel = torch.where(past_box, cmd_linvel_forward, cmd_linvel_pit)
+        target_yaw_pit = torch.atan2(delta_xy[:, 1:2], delta_xy[:, 0:1])
+        target_yaw_forward = torch.zeros(self.num_envs, 1, device=self.device)
+        desired_yaw = torch.where(past_box[:, :1], target_yaw_forward, target_yaw_pit)
+        self.cmd_type = torch.where(is_pit_env, torch.ones_like(self.cmd_type), self.cmd_type)
+        self.cmd_linvel_w = torch.where(is_pit_env.expand(-1, 3), desired_vel, self.cmd_linvel_w)
+        self.target_yaw = torch.where(is_pit_env, desired_yaw, self.target_yaw)
 
         self.body_heading_w = self.asset.data.heading_w.unsqueeze(1)
         yaw_diff = wrap_to_pi(self.target_yaw - self.body_heading_w).reshape(self.num_envs, 1)
@@ -140,20 +175,9 @@ class ATECTaskDCommand(Command):
             max=self.angvel_range[1],
         )
 
-        # if cmd_type is 0, use cmd_linvel_b and derive cmd_linvel_w
-        # if cmd_type is 1, use cmd_linvel_w and derive cmd_linvel_b
+        # Derive body-frame velocity and curriculum / ref height
         quat = yaw_quat(self.asset.data.root_link_quat_w)
-        self.cmd_linvel_w = torch.where(
-            self.cmd_type == 0,
-            quat_rotate(quat, self.cmd_linvel_b),
-            self.cmd_linvel_w,
-        )
-        self.cmd_linvel_b = torch.where(
-            self.cmd_type == 0,
-            self.cmd_linvel_b,
-            quat_rotate_inverse(quat, self.cmd_linvel_w),
-        )
-        assert self.cmd_linvel_b.shape == self.cmd_linvel_w.shape == (self.num_envs, 3)
+        self.cmd_linvel_b = quat_rotate_inverse(quat, self.cmd_linvel_w)
         self.command_speed = self.cmd_linvel_b.norm(dim=-1, keepdim=True)
         self.current_speed = self.asset.data.root_com_lin_vel_w.norm(dim=-1, keepdim=True)
         self.distance_commanded = self.distance_commanded + self.command_speed * self.env.step_dt
@@ -163,13 +187,19 @@ class ATECTaskDCommand(Command):
             self.asset.data.root_link_pos_w.unsqueeze(1) + self.ref_height_offset
         ).reshape(self.num_envs, 10)
         self.ref_height_w = self.ref_height_baseline.mean(1, keepdim=True) + 0.4
-    
+
     @override
     def debug_draw(self):
         if self.env.backend == "isaac" and self.env.sim.has_gui():
             dots = self.asset.data.root_link_pos_w.unsqueeze(1) + self.ref_height_offset
             dots[:, :, 2] = self.ref_height_baseline
             self.marker.visualize(dots.reshape(-1, 3))
+            self.env.debug_draw.vector(
+                self.asset.data.root_link_pos_w,
+                self.step_target_w - self.asset.data.root_link_pos_w,
+                color=(1.0, 0.4, 0.0, 1.0),
+            )
+            self.step_target_marker.visualize(self.step_target_w)
 
 
 class free_walk(Reward[ATECTaskDCommand]):

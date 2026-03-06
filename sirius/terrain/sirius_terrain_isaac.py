@@ -372,6 +372,7 @@ def pit_and_platform_terrain(
     mesh_list.append(platform)
     if cfg.box: # add a box in the pit for the robot to step over
         size = pit_width * random.uniform(0.6, 0.8)
+        size = min(size, pit_depth)
         box = trimesh.creation.box(
             extents=(size, size, size),
             transform=trimesh.transformations.rotation_matrix(
@@ -419,8 +420,11 @@ registry.register("terrain", "sirius_atec", ROUGH_TERRAIN_BASE_CFG.replace(terra
 registry.register("terrain", "sirius_stepping_stone", ROUGH_TERRAIN_BASE_CFG.replace(terrain_generator=SIRIUS_STEPPING_STONE))
 
 try:
+    from active_adaptation.envs.terrain.wrapper import BetterTerrainGenerator, BetterTerrainImporter
     from atec_rl_lab.tasks.task_d import TASK_D_TERRAIN_CFG
     from atec_rl_lab.tasks.task_d.terrain import PlatformTerrainCfg
+    TASK_D_TERRAIN_CFG.class_type = BetterTerrainImporter
+    TASK_D_TERRAIN_CFG.terrain_generator.class_type = BetterTerrainGenerator
     TASK_D_TERRAIN_CFG.terrain_generator.num_rows = 10
     TASK_D_TERRAIN_CFG.terrain_generator.num_cols = 20
     TASK_D_TERRAIN_CFG.terrain_generator.border_width = 50.0
@@ -437,13 +441,19 @@ try:
     TASK_D_TERRAIN_CFG_2.terrain_generator.sub_terrains = {
         # "platform": PlatformTerrainCfg(proportion=0.3, platform_height_range=(0.1, 0.4)),
         "pit_and_platform": PitAndPlatformTerrainCfg(
-            proportion=0.7, border_width=0.5,
+            proportion=0.5,
+            border_width=0.5,
             box=True,
             left_right_ratio=(1.0, 0.0),
         ),
+        # "pit": MeshPitTerrainCfg(
+        #     proportion=0.5,
+        #     pit_depth_range=(0.05, 0.20),
+        #     platform_width=4.0
+        # ),
     }
-    TASK_D_TERRAIN_CFG_1.terrain_generator.curriculum = True
-    TASK_D_TERRAIN_CFG_2.terrain_generator.curriculum = True
+    # TASK_D_TERRAIN_CFG_1.terrain_generator.curriculum = True
+    # TASK_D_TERRAIN_CFG_2.terrain_generator.curriculum = True
     registry.register("terrain", "atec_task_d_1", TASK_D_TERRAIN_CFG_1)
     registry.register("terrain", "atec_task_d_2", TASK_D_TERRAIN_CFG_2)
 except ImportError:
