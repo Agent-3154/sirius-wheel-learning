@@ -207,8 +207,11 @@ class PPOPolicy(TensorDictModuleBase):
 
         _actor = nn.Sequential(ResidualFC(256, 256), Actor(self.action_dim))
         actor_module = TDSeq(
-            TDMod(MixedEncoder(proprio_shape, extero_shape), ["_obs_normed", "_extero_normed"], ["feature"]),
-            TDMod(_actor, ["feature"], ["loc", "scale"])
+            TDMod(
+                MixedEncoder(proprio_shape, extero_shape),
+                ["_obs_normed", "_extero_normed"], ["actor_feature"]
+            ),
+            TDMod(_actor, ["actor_feature"], ["loc", "scale"])
         )
         self.actor: ProbabilisticActor = ProbabilisticActor(
             module=actor_module,
@@ -219,7 +222,13 @@ class PPOPolicy(TensorDictModuleBase):
         ).to(self.device)
         
         _critic = nn.Sequential(ResidualFC(256, 256), nn.LazyLinear(1))
-        self.critic = TDMod(_critic, ["feature"], ["state_value"]).to(self.device)
+        self.critic = TDSeq(
+            TDMod(
+                MixedEncoder(proprio_shape, extero_shape),
+                ["_obs_normed", "_extero_normed"], ["critic_feature"]
+            ),
+            TDMod(_critic, ["critic_feature"], ["state_value"])
+        ).to(self.device)
 
         self.vecnorm(fake_input)
         self.actor(fake_input)
@@ -350,8 +359,8 @@ class PPOPolicy(TensorDictModuleBase):
         keys = tensordict.keys(True, True)
         if not ("state_value" in keys and ("next", "state_value") in keys):
             with tensordict.view(-1) as tensordict_flat:
-                critic(self.actor(self.vecnorm(tensordict_flat)))
-                critic(self.actor(self.vecnorm(tensordict_flat["next"])))
+                critic(self.vecnorm(tensordict_flat))
+                critic(self.vecnorm(tensordict_flat["next"]))
 
         values = tensordict["state_value"]
         next_values = tensordict["next", "state_value"]
