@@ -84,6 +84,7 @@ class ATECTaskDCommand(Command):
             move_up = move_up & ~move_down
             self.terrain.update_env_origins(env_ids, move_up.squeeze(-1), move_down.squeeze(-1))
             self.env.extra["curriculum/terrain_level"] = self.terrain.terrain_levels.float().mean()
+        # sample robot initial state
         origins = self.terrain.env_origins[env_ids]
         init_root_state = self.init_root_state[env_ids]
         init_root_state[:, :3] += origins
@@ -93,7 +94,14 @@ class ATECTaskDCommand(Command):
         self.env.extra["curriculum/distance_traveled"] = self.distance_traveled.mean()
         self.distance_commanded[env_ids] = 0.0
         self.distance_traveled[env_ids] = 0.0
-        return init_root_state
+        # sample object initial state
+        if self.env.scene.get("box", None) is not None:
+            init_box_state = torch.zeros(len(env_ids), 7 + 6, device=self.device)
+            init_box_state[:, :3] = origins + torch.tensor([[1.5, 0.0, 0.2]], device=self.device)
+            init_box_state[:, 3:7] = sample_quat_yaw(len(env_ids), device=self.device)
+            return {"robot": init_root_state, "box": init_box_state}
+        else:
+            return {"robot": init_root_state}
 
     @override
     def reset(self, env_ids):

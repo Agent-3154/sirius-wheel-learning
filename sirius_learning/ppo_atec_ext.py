@@ -251,11 +251,14 @@ class PPOPolicy(TensorDictModuleBase):
         
         def init_(module):
             if isinstance(module, nn.Linear):
-                nn.init.orthogonal_(module.weight, 0.01)
+                nn.init.orthogonal_(module.weight, 0.1)
                 nn.init.constant_(module.bias, 0.)
             if isinstance(module, nn.Conv2d):
                 nn.init.orthogonal_(module.weight, 0.01)
                 nn.init.constant_(module.bias, 0.)
+            if isinstance(module, Actor):
+                nn.init.orthogonal_(module.actor_mean.weight, 0.01)
+                nn.init.constant_(module.actor_mean.bias, 0.)
         
         self.actor.apply(init_)
         self.critic.apply(init_)

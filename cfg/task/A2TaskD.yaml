@@ -8,7 +8,7 @@ viewer:
   eye: [4.0, 4.0, 4.0]
 
 robot:
-  name: a2
+  name: unitree_a2
 terrain: atec_task_d_2
 
 # common

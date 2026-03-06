@@ -1,6 +1,6 @@
 # @package task
 project: sirius
-name: B2TaskD
+name: B2LocoFlat
 
 viewer:
   resolution: [1280, 720]
@@ -9,7 +9,10 @@ viewer:
 
 robot:
   name: unitree_b2
-terrain: plane
+# terrain: plane
+# objects:
+#   box: {size: [0.8, 0.8, 0.8]}
+terrain: atec_task_d_2
 
 # common
 num_envs: 4096
@@ -36,6 +39,7 @@ command:
   use_stiffness_ratio: 0.9
   stand_prob: 0.05
   curriculum: false
+  teleop: false
 
 observation:
   policy:
@@ -81,7 +85,7 @@ reward:
     feet_contact_count: {weight: 1.0, body_names: .*foot}
 
 termination:
-  crash_body: {_target_: crash, body_names_expr: ["base_link", ".*hip"], t_thres: 0.02}
+  # crash_body: {_target_: crash, body_names_expr: ["base_link", ".*hip"], t_thres: 0.02}
   fall_over: {xy_thres: 0.9}
 
 randomization:

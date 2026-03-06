@@ -9,6 +9,8 @@ viewer:
 
 robot:
   name: unitree_b2
+# objects:
+#   box: {size: [0.6, 0.6, 0.6]}
 terrain: atec_task_d_2
 
 # common

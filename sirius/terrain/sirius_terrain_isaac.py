@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import active_adaptation
 import trimesh
 from active_adaptation.registry import Registry
@@ -15,6 +17,7 @@ from isaaclab.terrains import (
 )
 from isaaclab.utils import configclass
 from isaaclab.terrains.trimesh.mesh_terrains import flat_terrain
+from isaaclab.terrains.trimesh.utils import make_border
 import isaaclab.sim as sim_utils
 import numpy as np
 import random
@@ -310,13 +313,114 @@ ROUGH_TERRAIN_BASE_CFG = TerrainImporterCfg(
     debug_vis=False,
 )
 
+def pit_and_platform_terrain(
+    difficulty: float, cfg: PitAndPlatformTerrainCfg
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    """Generate a terrain with a pit and an adjacent platform.
+
+    The terrain contains a pit of fixed depth (0.4 m) with a bottom surface, and a platform
+    positioned randomly on either the left or right side of the pit. The pit width and platform
+    height are scaled linearly with the difficulty parameter based on their respective ranges
+    in the configuration. The platform width matches the pit width, creating a choice for the
+    robot to either traverse the pit or use the elevated platform to bypass it.
+
+    Args:
+        difficulty: Difficulty parameter in [0, 1] that scales the pit width and platform height
+            between their configured minimum and maximum values.
+        cfg: Configuration object containing terrain parameters such as size, pit width range,
+            platform height range, and border width.
+
+    Returns:
+        A tuple containing:
+            - A list of trimesh.Trimesh objects representing the terrain meshes (pit borders,
+              pit bottom, and platform).
+            - A numpy array of shape (3,) representing the origin position where the robot
+              should be spawned, located at 25% along the x-axis and centered on the y-axis.
+    """
+    mesh_list = []
+    pit_depth = cfg.pit_depth
+    pit_width = cfg.pit_width_range[0] + difficulty * (
+        cfg.pit_width_range[1] - cfg.pit_width_range[0]
+    )
+    platform_width = pit_width
+    platform_height = cfg.platform_height_range[0] + difficulty * (
+        cfg.platform_height_range[1] - cfg.platform_height_range[0]
+    )
+    mesh_list.extend(
+        make_border(
+            size=(cfg.size[0], cfg.size[1] - cfg.border_width),
+            inner_size=(pit_width, cfg.size[1] - cfg.border_width - 0.2),
+            height=pit_depth,
+            position=(cfg.size[0] / 2, cfg.size[1] / 2, -pit_depth / 2),
+        )
+    )
+    pit_bottom_thickness = 0.2
+    pit_bottom = trimesh.creation.box(
+        extents=(pit_width, cfg.size[1] - cfg.border_width, pit_bottom_thickness),
+        transform=trimesh.transformations.translation_matrix(
+            (cfg.size[0] / 2, cfg.size[1] / 2, -pit_depth - pit_bottom_thickness / 2)
+        ),
+    )
+    left_or_right = random.choices([0.25, 0.75], weights=cfg.left_right_ratio)[0]
+    platform = trimesh.creation.box(
+        extents=(platform_width, cfg.size[1] / 2 - cfg.border_width, platform_height),
+        transform=trimesh.transformations.translation_matrix(
+            (cfg.size[0] / 2, cfg.size[1] * left_or_right, platform_height / 2)
+        ),
+    )
+    mesh_list.append(pit_bottom)
+    mesh_list.append(platform)
+    if cfg.box: # add a box in the pit for the robot to step over
+        size = pit_width * random.uniform(0.6, 0.8)
+        box = trimesh.creation.box(
+            extents=(size, size, size),
+            transform=trimesh.transformations.rotation_matrix(
+                angle=random.uniform(-1.0, 1.0),
+                direction=np.array([0, 0, 1]),
+            )
+        )
+        box.apply_translation(
+            (cfg.size[0] / 2, cfg.size[1] * (1-left_or_right), -pit_depth + size / 2)
+        )
+        mesh_list.append(box)
+    origin = np.array([cfg.size[0] * 0.15, cfg.size[1] / 2, 0.0])
+    return mesh_list, origin
+
+
+@configclass
+class PitAndPlatformTerrainCfg(SubTerrainBaseCfg):
+    """Configuration for a terrain with a pit and an adjacent platform.
+
+    This terrain type creates a navigation challenge where a robot must choose between
+    traversing a pit or using an elevated platform positioned randomly on either the left
+    or right side of the pit. The pit width and platform height are scaled by the difficulty
+    parameter within their specified ranges.
+
+    Attributes:
+        border_width: Width of the border around the terrain (in m). Defaults to 0.5.
+        pit_width_range: Minimum and maximum width of the pit (in m). The actual width
+            is interpolated based on difficulty. Defaults to (0.8, 1.2).
+        platform_height_range: Minimum and maximum height of the platform above ground
+            (in m). The actual height is interpolated based on difficulty. Defaults to (0.3, 0.6).
+    """
+
+    function = pit_and_platform_terrain
+    border_width: float = 1.0
+    pit_depth: float = 0.8
+    # wo random
+    pit_width_range: tuple[float, float] = (1.1, 1.2)
+    platform_height_range: tuple[float, float] = (0.8, 1.0)
+    box: bool = False
+    left_right_ratio: tuple[float, float] = (0.5, 0.5)
+
+
 registry.register("terrain", "sirius_demo", ROUGH_TERRAIN_BASE_CFG.replace(terrain_generator=SIRIUS_DEMO))
 registry.register("terrain", "sirius_atec", ROUGH_TERRAIN_BASE_CFG.replace(terrain_generator=SIRIUS_ATEC))
 registry.register("terrain", "sirius_stepping_stone", ROUGH_TERRAIN_BASE_CFG.replace(terrain_generator=SIRIUS_STEPPING_STONE))
 
 try:
     from atec_rl_lab.tasks.task_d import TASK_D_TERRAIN_CFG
-    from atec_rl_lab.tasks.task_d.terrain import PlatformTerrainCfg, PitAndPlatformTerrainCfg
+    from atec_rl_lab.tasks.task_d.terrain import PlatformTerrainCfg
     TASK_D_TERRAIN_CFG.terrain_generator.num_rows = 10
     TASK_D_TERRAIN_CFG.terrain_generator.num_cols = 20
     TASK_D_TERRAIN_CFG.terrain_generator.border_width = 50.0
@@ -332,7 +436,11 @@ try:
     }
     TASK_D_TERRAIN_CFG_2.terrain_generator.sub_terrains = {
         # "platform": PlatformTerrainCfg(proportion=0.3, platform_height_range=(0.1, 0.4)),
-        "pit_and_platform": PitAndPlatformTerrainCfg(proportion=0.7, border_width=0.5),
+        "pit_and_platform": PitAndPlatformTerrainCfg(
+            proportion=0.7, border_width=0.5,
+            box=True,
+            left_right_ratio=(1.0, 0.0),
+        ),
     }
     TASK_D_TERRAIN_CFG_1.terrain_generator.curriculum = True
     TASK_D_TERRAIN_CFG_2.terrain_generator.curriculum = True
