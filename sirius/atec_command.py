@@ -160,7 +160,7 @@ class ATECTaskDCommand(Command):
         self.cum_error[env_ids] = 0.0
 
         pit_cmd_speed = torch.empty(len(env_ids), 1, device=self.device)
-        pit_cmd_speed.uniform_(0.4, 1.2)
+        pit_cmd_speed.uniform_(0.5, 1.3)
         self.pit_cmd_speed[env_ids] = pit_cmd_speed
         self._prev_flat_env[env_ids] = False  # re-sample flat command when env respawns on flat
 

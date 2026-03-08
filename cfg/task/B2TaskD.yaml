@@ -53,7 +53,7 @@ observation:
     projected_gravity_b: {noise_std: 0.05}
     joint_pos_multistep: {steps: 4, interval: 2, noise_std: 0.05}
     joint_vel_multistep: {steps: 4, interval: 2, noise_std: 0.2}
-    prev_actions: {steps: 3}
+    prev_actions: {steps: 2}
   extero:
     height_scan: {
       x_range: [-1.2, 1.2],
