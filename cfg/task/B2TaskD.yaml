@@ -62,15 +62,15 @@ observation:
 
 reward:
   loco:
-    # linvel_exp:         {weight: 1.5, dim: 2}
-    # linvel_projection:  {weight: 0.5}
+    linvel_exp:         {weight: 1.5, dim: 2}
+    linvel_projection:  {weight: 0.5}
     # get_over_platform:  {weight: 1.0}
-    # angvel_z_exp:       {weight: 1.2}
-    # base_height_l1:     {weight: 2.0, target_height: 0.45}
-    atec.free_walk:     {weight: 1.5}
+    angvel_z_exp:       {weight: 1.2}
+    base_height_exp:    {weight: 2.0, target_height: 0.45}
+    # atec.free_walk:     {weight: 1.5}
     angvel_xy_l2:       {weight: 0.02}
     linvel_z_l2:        {weight: 0.5}
-    # root_upright:       {weight: 1.0}
+    root_upright:       {weight: 1.0}
     survival:           {weight: 1.0}
   joint_reg:
     joint_deviation_l2: {weight: 0.1}
@@ -80,8 +80,8 @@ reward:
     action_rate_l2:     {weight: 0.005}
     action_rate2_l2:    {weight: 0.005}
   gait:
-    feet_sliding:       {weight: 0.5, body_names: .*foot}
-    feet_air_time:      {weight: 0.2, body_names: .*_foot, thres: 0.4}
+    feet_sliding:       {weight: 0.2, body_names: .*foot}
+    feet_air_time:      {weight: 0.5, body_names: .*_foot, thres: 0.4}
   debug:
     _enabled_: false
     feet_sliding:       {weight: 1.0, body_names: .*foot}
@@ -97,3 +97,8 @@ randomization:
     pos_ranges:
       .*: [-0.2, 0.2]
     rel: true
+  perturb_body_materials:
+    body_names: .*_foot
+    static_friction_range:  [0.5, 4.0]
+    dynamic_friction_range: [0.5, 4.0]
+    restitution_range:      [0.0, 0.5]

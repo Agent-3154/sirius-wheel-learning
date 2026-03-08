@@ -1,7 +1,14 @@
 import torch
 from typing_extensions import override, TYPE_CHECKING
 from active_adaptation.envs.mdp.base import Command, Reward
-from active_adaptation.utils.math import quat_rotate, sample_quat_yaw, wrap_to_pi, quat_rotate_inverse, yaw_quat
+from active_adaptation.utils.math import (
+    quat_rotate,
+    sample_quat_yaw,
+    wrap_to_pi,
+    quat_rotate_inverse,
+    yaw_quat,
+    clamp_norm,
+)
 from active_adaptation.utils.symmetry import SymmetryTransform
 
 if TYPE_CHECKING:
@@ -34,10 +41,10 @@ class ATECTaskDCommand(Command):
             dtype=torch.float32,
         )
         self._pit_and_platform_idx = self.sub_terrain_type_mapping.get("pit_and_platform", -1)
-        self._pit_cmd_speed = 1.0  # forward speed when commanding toward step target or past it
 
         with torch.device(self.device):
             self.cmd_type = torch.zeros(self.num_envs, 1, dtype=torch.int32)
+            self.pit_cmd_speed = torch.zeros(self.num_envs, 1)
 
             self.cmd_linvel_w = torch.zeros(self.num_envs, 3)
             self.cmd_linvel_b = torch.zeros(self.num_envs, 3)
@@ -59,6 +66,25 @@ class ATECTaskDCommand(Command):
                 torch.zeros(10),
             ], dim=1)
             self.step_target_w = torch.zeros(self.num_envs, 3, device=self.device)
+
+        if self.teleop and self.env.backend == "isaac":
+            self._teleop_linvel = torch.zeros(3, device=self.device)
+            self._teleop_yaw = torch.zeros(1, device=self.device)
+            self._speed_scale = 0.8
+            self._fast_speed_scale = 1.6
+            self._slow_speed_scale = 0.4
+            self.key_mappings_linvel = {
+                "W": torch.tensor([1.4, 0.0, 0.0], device=self.device),
+                "S": torch.tensor([-1.4, 0.0, 0.0], device=self.device),
+                "A": torch.tensor([0.0, 1.0, 0.0], device=self.device),
+                "D": torch.tensor([0.0, -1.0, 0.0], device=self.device),
+            }
+            self.key_mappings_yaw = {
+                "LEFT": torch.tensor([self.angvel_range[1]], device=self.device),
+                "RIGHT": torch.tensor([self.angvel_range[0]], device=self.device),
+            }
+            from active_adaptation.utils.isaac_keyboard import IsaacKeyboardManager
+            self.keyboard_manager = IsaacKeyboardManager()
 
         self.update()
 
@@ -134,13 +160,56 @@ class ATECTaskDCommand(Command):
 
     @override
     def reset(self, env_ids):
-        pass
+        pit_cmd_speed = torch.empty(len(env_ids), 1, device=self.device)
+        pit_cmd_speed.uniform_(0.4, 1.2)
+        self.pit_cmd_speed[env_ids] = pit_cmd_speed
 
     @override
     def update(self):
+        if self.teleop:
+            self._update_teleop()
+            return
+        self._update_training()
+
+    def _update_teleop(self):
+        if self.env.backend != "isaac":
+            self._update_training()
+            return
+        km = self.keyboard_manager.key_pressed
+        if km.get("LEFT_SHIFT") or km.get("RIGHT_SHIFT"):
+            scale = self._fast_speed_scale
+        elif km.get("LEFT_CONTROL") or km.get("RIGHT_CONTROL"):
+            scale = self._slow_speed_scale
+        else:
+            scale = self._speed_scale
+        self._teleop_linvel.zero_()
+        for key, vel in self.key_mappings_linvel.items():
+            if km.get(key, False):
+                self._teleop_linvel.add_(vel)
+        self._teleop_yaw.zero_()
+        for key, vel in self.key_mappings_yaw.items():
+            if km.get(key, False):
+                self._teleop_yaw.add_(vel)
+        linvel = (self._teleop_linvel * scale).unsqueeze(0).expand(self.num_envs, -1)
+        linvel[:, 2] = 0.0
+        max_speed = max(0.0, 2.5 - self._teleop_yaw.abs().item())
+        self.cmd_linvel_b = clamp_norm(linvel, max=max_speed)
+        self.cmd_yawvel_b[:] = (self._teleop_yaw * scale).clamp(*self.angvel_range)
+        self.cmd_base_height[:] = 0.3
+        quat = yaw_quat(self.asset.data.root_link_quat_w)
+        self.cmd_linvel_w = quat_rotate(quat, self.cmd_linvel_b)
+        self.command_speed = self.cmd_linvel_b.norm(dim=-1, keepdim=True)
+        self.current_speed = self.asset.data.root_com_lin_vel_w.norm(dim=-1, keepdim=True)
+        self.distance_commanded = self.distance_commanded + self.command_speed * self.env.step_dt
+        self.distance_traveled = self.distance_traveled + self.current_speed * self.env.step_dt
+        self.ref_height_baseline = self.env.get_ground_height_at(
+            self.asset.data.root_link_pos_w.unsqueeze(1) + self.ref_height_offset
+        ).reshape(self.num_envs, 10)
+        self.ref_height_w = self.ref_height_baseline.mean(1, keepdim=True) + 0.4
+
+    def _update_training(self):
         # For pit_and_platform terrains: command (vx, vy, v_yaw) toward the virtual step target
         # (where the box would be) so the robot learns to cross the gap by stepping on it.
-        
         root_pos_w = self.asset.data.root_link_pos_w
         terrain_origin_ids = self.terrain_generator.get_terrain_origin_id(root_pos_w)
         terrain_types = self.sub_terrain_types.to(self.device)[terrain_origin_ids]
@@ -156,9 +225,9 @@ class ATECTaskDCommand(Command):
         # Phase 1: velocity toward step target; Phase 2: forward (+x)
         dir_xy = delta_xy / dist_to_target
         cmd_linvel_pit = torch.zeros(self.num_envs, 3, device=self.device)
-        cmd_linvel_pit[:, :2] = dir_xy * self._pit_cmd_speed
+        cmd_linvel_pit[:, :2] = dir_xy * self.pit_cmd_speed
         cmd_linvel_forward = torch.zeros(self.num_envs, 3, device=self.device)
-        cmd_linvel_forward[:, 0] = self._pit_cmd_speed
+        cmd_linvel_forward[:, 0:1] = self.pit_cmd_speed
         desired_vel = torch.where(past_box, cmd_linvel_forward, cmd_linvel_pit)
         target_yaw_pit = torch.atan2(delta_xy[:, 1:2], delta_xy[:, 0:1])
         target_yaw_forward = torch.zeros(self.num_envs, 1, device=self.device)
