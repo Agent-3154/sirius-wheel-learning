@@ -31,6 +31,8 @@ input:
 
 command:
   _target_: ATECTaskDCommand
+  linvel_x_range: [-1.4, 1.4]
+  linvel_y_range: [-1.0, 1.0]
   curriculum: true
 
 # command:

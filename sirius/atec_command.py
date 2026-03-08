@@ -18,10 +18,14 @@ class ATECTaskDCommand(Command):
     def __init__(
         self,
         env,
+        linvel_x_range=(-1.0, 1.0),
+        linvel_y_range=(-1.0, 1.0),
         curriculum: bool = False,
         teleop: bool = False,
     ) -> None:
         super().__init__(env, teleop)
+        self.linvel_x_range = linvel_x_range
+        self.linvel_y_range = linvel_y_range
         self.angvel_range = (-2.0, 2.0)
         self.curriculum = curriculum and self.env.backend == "isaac"
         
@@ -41,6 +45,7 @@ class ATECTaskDCommand(Command):
             dtype=torch.float32,
         )
         self._pit_and_platform_idx = self.sub_terrain_type_mapping.get("pit_and_platform", -1)
+        self._flat_idx = self.sub_terrain_type_mapping.get("flat", -1)
 
         with torch.device(self.device):
             self.cmd_type = torch.zeros(self.num_envs, 1, dtype=torch.int32)
@@ -66,6 +71,11 @@ class ATECTaskDCommand(Command):
                 torch.zeros(10),
             ], dim=1)
             self.step_target_w = torch.zeros(self.num_envs, 3, device=self.device)
+
+            # Flat terrain: persist one random twist until leaving flat; re-sample when entering flat
+            self._flat_cmd_linvel_w = torch.zeros(self.num_envs, 3)
+            self._flat_target_yaw = torch.zeros(self.num_envs, 1)
+            self._prev_flat_env = torch.zeros(self.num_envs, dtype=torch.bool)
 
         if self.teleop and self.env.backend == "isaac":
             self._teleop_linvel = torch.zeros(3, device=self.device)
@@ -163,6 +173,7 @@ class ATECTaskDCommand(Command):
         pit_cmd_speed = torch.empty(len(env_ids), 1, device=self.device)
         pit_cmd_speed.uniform_(0.4, 1.2)
         self.pit_cmd_speed[env_ids] = pit_cmd_speed
+        self._prev_flat_env[env_ids] = False  # re-sample flat command when env respawns on flat
 
     @override
     def update(self):
@@ -210,33 +221,63 @@ class ATECTaskDCommand(Command):
     def _update_training(self):
         # For pit_and_platform terrains: command (vx, vy, v_yaw) toward the virtual step target
         # (where the box would be) so the robot learns to cross the gap by stepping on it.
+        # For flat: sample simple random twist (v_x, v_y, v_yaw). Re-sample when entering pit.
         root_pos_w = self.asset.data.root_link_pos_w
         terrain_origin_ids = self.terrain_generator.get_terrain_origin_id(root_pos_w)
         terrain_types = self.sub_terrain_types.to(self.device)[terrain_origin_ids]
         origins_flat = self.terrain.terrain_origins.reshape(-1, 3).to(self.device)
         terrain_origins = origins_flat[terrain_origin_ids]
         is_pit_env = (terrain_types == self._pit_and_platform_idx).unsqueeze(1)
+        is_flat_env = (terrain_types == self._flat_idx).unsqueeze(1)
+
+        self.body_heading_w = self.asset.data.heading_w.unsqueeze(1)
+        quat = yaw_quat(self.asset.data.root_link_quat_w)
 
         self.step_target_w = terrain_origins + self._step_target_offset
-            
+
+        # Pit: velocity toward step target (re-sample when robot enters pit_and_platform)
         delta_xy = self.step_target_w[:, :2] - root_pos_w[:, :2]
         dist_to_target = delta_xy.norm(dim=-1, keepdim=True).clamp_min(1e-4)
         past_box = (root_pos_w[:, 0:1] > self.step_target_w[:, 0:1] + 0.2)
-        # Phase 1: velocity toward step target; Phase 2: forward (+x)
         dir_xy = delta_xy / dist_to_target
         cmd_linvel_pit = torch.zeros(self.num_envs, 3, device=self.device)
         cmd_linvel_pit[:, :2] = dir_xy * self.pit_cmd_speed
         cmd_linvel_forward = torch.zeros(self.num_envs, 3, device=self.device)
         cmd_linvel_forward[:, 0:1] = self.pit_cmd_speed
-        desired_vel = torch.where(past_box, cmd_linvel_forward, cmd_linvel_pit)
+        desired_vel_pit = torch.where(past_box, cmd_linvel_forward, cmd_linvel_pit)
         target_yaw_pit = torch.atan2(delta_xy[:, 1:2], delta_xy[:, 0:1])
         target_yaw_forward = torch.zeros(self.num_envs, 1, device=self.device)
-        desired_yaw = torch.where(past_box[:, :1], target_yaw_forward, target_yaw_pit)
-        self.cmd_type = torch.where(is_pit_env, torch.ones_like(self.cmd_type), self.cmd_type)
-        self.cmd_linvel_w = torch.where(is_pit_env.expand(-1, 3), desired_vel, self.cmd_linvel_w)
-        self.target_yaw = torch.where(is_pit_env, desired_yaw, self.target_yaw)
+        desired_yaw_pit = torch.where(past_box[:, :1], target_yaw_forward, target_yaw_pit)
 
-        self.body_heading_w = self.asset.data.heading_w.unsqueeze(1)
+        # Flat: use one random twist (v_x, v_y, v_yaw) until leaving flat; sample only when entering flat
+        just_entered_flat = is_flat_env & ~self._prev_flat_env.unsqueeze(1)
+        if just_entered_flat.any():
+            env_ids = just_entered_flat.squeeze(-1).nonzero(as_tuple=True)[0]
+            n = len(env_ids)
+            flat_linvel_b = torch.zeros(n, 3, device=self.device)
+            flat_linvel_b[:, 0].uniform_(*self.linvel_x_range)
+            flat_linvel_b[:, 1].uniform_(*self.linvel_y_range)
+            flat_yawvel_b = torch.zeros(n, 1, device=self.device)
+            flat_yawvel_b.uniform_(self.angvel_range[0], self.angvel_range[1])
+            q = quat[env_ids]
+            self._flat_cmd_linvel_w[env_ids] = quat_rotate(q, flat_linvel_b)
+            self._flat_target_yaw[env_ids] = self.body_heading_w[env_ids] + flat_yawvel_b
+        flat_linvel_w = self._flat_cmd_linvel_w
+        flat_target_yaw = self._flat_target_yaw
+
+        # Apply: pit = step-target (re-sample when entering pit); flat = stored random twist; else keep previous
+        self.cmd_type = torch.where(is_pit_env, torch.ones_like(self.cmd_type), self.cmd_type)
+        self.cmd_linvel_w = torch.where(
+            is_pit_env.expand(-1, 3), desired_vel_pit,
+            torch.where(is_flat_env.expand(-1, 3), flat_linvel_w, self.cmd_linvel_w),
+        )
+        self.target_yaw = torch.where(
+            is_pit_env, desired_yaw_pit,
+            torch.where(is_flat_env, flat_target_yaw, self.target_yaw),
+        )
+
+        self._prev_flat_env = is_flat_env.squeeze(-1)
+
         yaw_diff = wrap_to_pi(self.target_yaw - self.body_heading_w).reshape(self.num_envs, 1)
         self.cmd_yawvel_b = torch.clamp(
             self.yaw_stiffness * yaw_diff,
@@ -245,7 +286,6 @@ class ATECTaskDCommand(Command):
         )
 
         # Derive body-frame velocity and curriculum / ref height
-        quat = yaw_quat(self.asset.data.root_link_quat_w)
         self.cmd_linvel_b = quat_rotate_inverse(quat, self.cmd_linvel_w)
         self.command_speed = self.cmd_linvel_b.norm(dim=-1, keepdim=True)
         self.current_speed = self.asset.data.root_com_lin_vel_w.norm(dim=-1, keepdim=True)
@@ -259,7 +299,26 @@ class ATECTaskDCommand(Command):
 
     @override
     def debug_draw(self):
+        start = self.asset.data.root_link_pos_w + torch.tensor([0.0, 0.0, 0.2], device=self.device)
+        yaw_vec = torch.stack(
+            [
+                self.target_yaw.cos(),
+                self.target_yaw.sin(),
+                torch.zeros_like(self.target_yaw),
+            ],
+            1,
+        )
         if self.env.backend == "isaac" and self.env.sim.has_gui():
+            self.env.debug_draw.vector(
+                start,
+                self.cmd_linvel_w,
+                color=(1.0, 1.0, 1.0, 1.0),
+            )
+            self.env.debug_draw.vector(
+                start,
+                yaw_vec,
+                color=(0.2, 0.2, 1.0, 1.0),
+            )
             dots = self.asset.data.root_link_pos_w.unsqueeze(1) + self.ref_height_offset
             dots[:, :, 2] = self.ref_height_baseline
             self.marker.visualize(dots.reshape(-1, 3))
