@@ -54,6 +54,7 @@ class ATECTaskDCommand(Command):
 
             self.cmd_linvel_w = torch.zeros(self.num_envs, 3)
             self.cmd_linvel_b = torch.zeros(self.num_envs, 3)
+            self.cmd_yawvel_b = torch.zeros(self.num_envs, 1)
             self.command_speed: torch.Tensor # derived from cmd_linvel_w
             self.cmd_base_height = torch.zeros(self.num_envs, 1)
             self.cmd_base_height.fill_(0.3)
@@ -62,6 +63,9 @@ class ATECTaskDCommand(Command):
             self.yaw_stiffness.fill_(1.0)
 
             # curriculum
+            self.cum_error = torch.zeros(self.num_envs, 2)
+            self._cum_linvel_error = self.cum_error[:, 0].unsqueeze(1)
+            self._cum_angvel_error = self.cum_error[:, 1].unsqueeze(1)
             self.distance_commanded = torch.zeros(self.num_envs, 1)
             self.distance_traveled = torch.zeros(self.num_envs, 1)
             
@@ -153,6 +157,8 @@ class ATECTaskDCommand(Command):
 
     @override
     def reset(self, env_ids):
+        self.cum_error[env_ids] = 0.0
+
         pit_cmd_speed = torch.empty(len(env_ids), 1, device=self.device)
         pit_cmd_speed.uniform_(0.4, 1.2)
         self.pit_cmd_speed[env_ids] = pit_cmd_speed
@@ -202,6 +208,12 @@ class ATECTaskDCommand(Command):
         self.ref_height_w = self.ref_height_baseline.mean(1, keepdim=True) + 0.4
 
     def _update_training(self):
+        linvel_diff = self.asset.data.root_com_lin_vel_w[:, :2] - self.cmd_linvel_w[:, :2]
+        linvel_error = linvel_diff.norm(dim=-1, keepdim=True)
+        angvel_diff = self.cmd_yawvel_b - self.asset.data.root_com_ang_vel_w[:, 2:3]
+        angvel_error = angvel_diff.abs()
+        self._cum_linvel_error.mul_(0.98).add_(linvel_error * self.env.step_dt)
+        self._cum_angvel_error.mul_(0.98).add_(angvel_error * self.env.step_dt)
         # For pit_and_platform terrains: command (vx, vy, v_yaw) toward the virtual step target
         # (where the box would be) so the robot learns to cross the gap by stepping on it.
         # For flat: sample simple random twist (v_x, v_y, v_yaw). Re-sample when entering pit.

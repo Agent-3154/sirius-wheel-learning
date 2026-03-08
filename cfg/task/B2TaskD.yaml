@@ -93,6 +93,7 @@ termination:
   crash: {body_names_expr: ["base_link", ".*hip"], t_thres: 0.05}
   fall_over: {xy_thres: 0.9}
   undesired_contact: {body_names: ["base_link", .*thigh], thres: 1.0}
+  cum_error: {thres: 0.85, min_steps: 50}
 
 randomization:
   reset_joint_states_uniform:
@@ -101,6 +102,11 @@ randomization:
     rel: true
   perturb_body_materials:
     body_names: .*_foot
-    static_friction_range:  [0.5, 4.0]
-    dynamic_friction_range: [0.5, 4.0]
+    static_friction_range:  [0.5, 3.0]
+    dynamic_friction_range: [0.5, 3.0]
     restitution_range:      [0.0, 0.5]
+  motor_params:
+    stiffness_range:
+      .*: [0.9, 1.1]
+    damping_range:
+      .*: [0.9, 1.1]

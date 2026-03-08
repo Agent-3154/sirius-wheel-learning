@@ -64,7 +64,7 @@ class PPOConfig:
     ppo_epochs: int = 4
     num_minibatches: int = 4
     lr: float = 5e-4
-    desired_kl: Union[float, None] = 0.02
+    desired_kl: Union[float, None] = None
     clip_param: float = 0.2
     entropy_coef: float = 0.002
 
@@ -260,7 +260,7 @@ class PPOPolicy(TensorDictModuleBase):
         
         def init_(module):
             if isinstance(module, nn.Linear):
-                nn.init.orthogonal_(module.weight, 0.1)
+                nn.init.orthogonal_(module.weight, 0.02)
                 nn.init.constant_(module.bias, 0.)
             if isinstance(module, nn.Conv2d):
                 nn.init.orthogonal_(module.weight, 0.01)
@@ -380,16 +380,16 @@ class PPOPolicy(TensorDictModuleBase):
         bsize = tensordict.shape[0]
         loc_old, scale_old = tensordict["loc"], tensordict["scale"]
 
-        # symmetry = tensordict.empty()
-        # symmetry[ACTION_KEY] = self.act_transform(tensordict[ACTION_KEY])
-        # symmetry[CMD_KEY] = self.cmd_transform(tensordict[CMD_KEY])
-        # symmetry[OBS_KEY] = self.obs_transform(tensordict[OBS_KEY])
-        # symmetry["terrain"] = self.terrain_transform(tensordict["terrain"])
-        # symmetry["action_log_prob"] = tensordict["action_log_prob"]
-        # symmetry["adv"] = tensordict["adv"]
-        # symmetry["ret"] = tensordict["ret"]
-        # symmetry["is_init"] = tensordict["is_init"]
-        # tensordict = torch.cat([tensordict.select(*symmetry.keys(True, True)), symmetry], dim=0)
+        symmetry = tensordict.empty()
+        symmetry[ACTION_KEY] = self.act_transform(tensordict[ACTION_KEY])
+        symmetry[OBS_KEY] = self.obs_transform(tensordict[OBS_KEY])
+        symmetry["extero"] = self.extero_transform(tensordict["extero"])
+        symmetry["action_log_prob"] = tensordict["action_log_prob"]
+        symmetry["adv"] = tensordict["adv"]
+        symmetry["ret"] = tensordict["ret"]
+        symmetry["is_init"] = tensordict["is_init"]
+        tensordict = torch.cat([tensordict.select(*symmetry.keys(True, True)), symmetry], dim=0)
+        
         self.vecnorm(tensordict)
 
         valid = (~tensordict["is_init"])
@@ -436,14 +436,14 @@ class PPOPolicy(TensorDictModuleBase):
             clipfrac = ((ratio - 1.0).abs() > self.clip_param).float().mean()
             loc, scale = dist.loc[:bsize], dist.scale[:bsize]
             kl = IndependentNormal.kl(loc, scale, loc_old, scale_old).mean()
-            # symmetry_loss = F.mse_loss(dist.mean[bsize:], self.act_transform(dist.mean[:bsize]))
+            symmetry_loss = F.mse_loss(dist.mean[bsize:], self.act_transform(dist.mean[:bsize]))
         return {
             "actor/policy_loss": policy_loss.detach(),
             "actor/entropy": entropy.detach(),
             "actor/grad_norm": actor_grad_norm,
             "actor/clamp_ratio": clipfrac,
             "actor/kl": kl,
-            # "actor/symmetry_loss": symmetry_loss.detach(),
+            "actor/symmetry_loss": symmetry_loss.detach(),
             "critic/value_loss": value_loss.detach(),
             "critic/grad_norm": critic_grad_norm,
             "critic/explained_var": explained_var,
