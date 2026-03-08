@@ -10,6 +10,7 @@ from isaaclab.terrains import (
     TerrainGeneratorCfg,
     MeshPlaneTerrainCfg,
     HfRandomUniformTerrainCfg,
+    MeshRandomGridTerrainCfg,
     MeshPitTerrainCfg,
     MeshInvertedPyramidStairsTerrainCfg,
     MeshGapTerrainCfg,
@@ -432,11 +433,27 @@ try:
 
     TASK_D_TERRAIN_CFG_1 = copy.deepcopy(TASK_D_TERRAIN_CFG)
     TASK_D_TERRAIN_CFG_2 = copy.deepcopy(TASK_D_TERRAIN_CFG)
+    TASK_D_TERRAIN_CFG_1.terrain_generator.size = (8.0, 8.0)
     TASK_D_TERRAIN_CFG_1.terrain_generator.sub_terrains = {
-        "flat": MeshPlaneTerrainCfg(proportion=0.1),
-        "platform_0": PlatformTerrainCfg(proportion=0.4, platform_height_range=(0.1, 0.6)),
-        "pit": MeshPitTerrainCfg(proportion=0.2, pit_depth_range=(0.05, 0.20), platform_width=4.0),
-        "platform_1": PlatformTerrainCfg(proportion=0.3, platform_height_range=(0.1, 0.6)),
+        "flat": MeshPlaneTerrainCfg(proportion=0.2),
+        "boxes": MeshRandomGridTerrainCfg(
+            proportion=0.20, 
+            grid_width=0.45, 
+            grid_height_range=(0.02, 0.1), 
+            platform_width=2.0
+        ),
+        "gap": MeshGapTerrainCfg(
+            proportion=0.20,
+            gap_width_range=(0.0, 0.4),
+            platform_width=4.0,
+        ),
+        "pit": MeshPitTerrainCfg(
+            proportion=0.2,
+            pit_depth_range=(0.05, 0.20),
+            platform_width=4.0
+        ),
+        # "platform_0": PlatformTerrainCfg(proportion=0.4, platform_height_range=(0.1, 0.6)),
+        # "platform_1": PlatformTerrainCfg(proportion=0.3, platform_height_range=(0.1, 0.6)),
     }
     TASK_D_TERRAIN_CFG_2.terrain_generator.sub_terrains = {
         # "platform": PlatformTerrainCfg(proportion=0.3, platform_height_range=(0.1, 0.4)),
@@ -455,7 +472,7 @@ try:
     }
     # TASK_D_TERRAIN_CFG_1.terrain_generator.curriculum = True
     # TASK_D_TERRAIN_CFG_2.terrain_generator.curriculum = True
-    registry.register("terrain", "atec_task_d_1", TASK_D_TERRAIN_CFG_1)
+    registry.register("terrain", "atec", TASK_D_TERRAIN_CFG_1)
     registry.register("terrain", "atec_task_d_2", TASK_D_TERRAIN_CFG_2)
 except ImportError:
     pass

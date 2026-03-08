@@ -12,6 +12,7 @@ from active_adaptation.utils.math import (
 from active_adaptation.utils.symmetry import SymmetryTransform
 
 if TYPE_CHECKING:
+    from active_adaptation.envs.adapters import IsaacSceneAdapter
     from active_adaptation.envs.terrain import BetterTerrainImporter, BetterTerrainGenerator
 
 class ATECTaskDCommand(Command):
@@ -99,31 +100,13 @@ class ATECTaskDCommand(Command):
         self.update()
 
         if self.env.backend == "isaac" and self.env.sim.has_gui():
-            from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg, sim_utils
-            self.marker = VisualizationMarkers(
-                VisualizationMarkersCfg(
-                    prim_path=f"/Visuals/Command/ref_height",
-                    markers={
-                        "scandot": sim_utils.SphereCfg(
-                            radius=0.03,
-                            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 0.8, 0.8)),
-                        ),
-                    }
-                )
+            scene: IsaacSceneAdapter = self.env.scene
+            self.marker = scene.create_sphere_marker(
+                "/Visuals/Command/ref_height", (0.0, 0.8, 0.8), radius=0.03
             )
-            self.marker.set_visibility(True)
-            self.step_target_marker = VisualizationMarkers(
-                VisualizationMarkersCfg(
-                    prim_path="/Visuals/Command/step_target",
-                    markers={
-                        "target": sim_utils.SphereCfg(
-                            radius=0.08,
-                            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.4, 0.0)),
-                        ),
-                    }
-                )
+            self.step_target_marker = scene.create_sphere_marker(
+                "/Visuals/Command/step_target", (1.0, 0.4, 0.0), radius=0.08
             )
-            self.step_target_marker.set_visibility(True)
     
     @property
     def command(self):
