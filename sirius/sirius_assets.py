@@ -151,18 +151,12 @@ SIRIUS_DIFF = AssetCfg(
         "LF_FOOT": "RF_FOOT",
         "LH_FOOT": "RH_FOOT",
     }),
-    joint_names_isaac=[
+    joint_names_simulation=[
         "LF_HAA", "LH_HAA", "RF_HAA", "RH_HAA",
         "LF_HFE", "LH_HFE", "RF_HFE", "RH_HFE",
         "LF_KNEE", "LH_KNEE", "RF_KNEE", "RH_KNEE"
     ],
-    joint_names_mjlab=[
-        "LF_HAA", "LF_HFE", "LF_KNEE",
-        "RF_HAA", "RF_HFE", "RF_KNEE",
-        "LH_HAA", "LH_HFE", "LH_KNEE",
-        "RH_HAA", "RH_HFE", "RH_KNEE"
-    ],
-    body_names_isaac=[
+    body_names_simulation=[
         "trunk",
         "LF_hip", "LH_hip", "RF_hip", "RH_hip",
         "LF_thigh", "LH_thigh", "RF_thigh", "RH_thigh",

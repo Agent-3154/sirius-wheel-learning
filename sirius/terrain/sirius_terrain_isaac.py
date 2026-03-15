@@ -458,12 +458,12 @@ try:
     TASK_D_TERRAIN_CFG_2.terrain_generator.sub_terrains = {
         # "platform": PlatformTerrainCfg(proportion=0.3, platform_height_range=(0.1, 0.4)),
         "pit_and_platform": PitAndPlatformTerrainCfg(
-            proportion=0.6,
+            proportion=0.5,
             border_width=0.5,
-            box=True,
+            # box=True,
             left_right_ratio=(1.0, 0.0),
         ),
-        "flat": MeshPlaneTerrainCfg(proportion=0.4),
+        "flat": MeshPlaneTerrainCfg(proportion=0.1),
         # "pit": MeshPitTerrainCfg(
         #     proportion=0.5,
         #     pit_depth_range=(0.05, 0.20),

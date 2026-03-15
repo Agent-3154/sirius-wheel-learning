@@ -1,7 +1,7 @@
 import torch
 import warp as wp
 
-from active_adaptation.envs.mdp.base import Command, Reward, Observation, Termination
+from active_adaptation.envs.mdp import Command, Reward, Observation, Termination
 from active_adaptation.utils.math import (
     clamp_norm,
     quat_rotate,

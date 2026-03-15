@@ -1,6 +1,6 @@
 import torch
 from typing_extensions import override, TYPE_CHECKING
-from active_adaptation.envs.mdp.base import Command, Reward
+from active_adaptation.envs.mdp import Command, Reward
 from active_adaptation.utils.math import (
     quat_rotate,
     sample_quat_yaw,
@@ -34,6 +34,7 @@ class ATECTaskDCommand(Command):
         assert self.terrain.cfg.terrain_type == "generator", "Curriculum is only supported for generator terrain"
         # assert self.terrain.cfg.terrain_generator.curriculum, "Curriculum is not enabled for the terrain"
         self.terrain_generator: BetterTerrainGenerator = self.terrain.terrain_generator
+        self.box = self.env.scene.get("box", None)
         
         self.sub_terrain_types = self.terrain_generator.sub_terrain_types
         self.sub_terrain_type_mapping = self.terrain_generator.sub_terrain_type_mapping
