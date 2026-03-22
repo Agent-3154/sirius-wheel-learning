@@ -24,14 +24,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.distributions as D
 import warnings
-import functools
 import torch.utils._pytree as pytree
 
 from torchrl.data import Composite, TensorSpec
 from torchrl.modules import ProbabilisticActor
-from torchrl.envs.transforms import CatTensors
 from tensordict import TensorDict
 from tensordict.nn import (
     TensorDictModuleBase,
@@ -47,10 +44,9 @@ from collections import OrderedDict
 from active_adaptation.learning.modules import IndependentNormal, VecNorm
 from active_adaptation.learning.utils.opt import OptimizerGroup
 from active_adaptation.learning.ppo.common import *
-from active_adaptation.utils.math import quat_rotate_inverse
+from active_adaptation.utils.math import quat_rotate, quat_rotate_inverse
 
 torch.set_float32_matmul_precision('high')
-USE_DDP = True
 
 import active_adaptation
 import torch.distributed as distr
@@ -70,63 +66,24 @@ class PPOConfig:
 
     muon: bool = False
     compile: bool = False
+    use_ddp: bool = True
 
     checkpoint_path: Union[str, None] = None
     in_keys: Tuple[str, ...] = (CMD_KEY, OBS_KEY, "extero")
+    stages: Tuple[str, ...] = ("policy", "prior")
+
+    prior_horizon: int = 32
+    prior_lr: float = 5e-4
+    prior_inner_steps: int = 4
+
 
 cs = ConfigStore.instance()
-cs.store("ppo_atec_ext", node=PPOConfig, group="algo")
-
-
-def label_future_contact(tensordict: TensorDict):
-    """
-    Label the next feet contact position, and whether there are any future contacts.
-    The input tensordict should contain the following information:
-    - root_link_pos_w: (N, 3)
-    - root_link_quat_w: (N, 4)
-    - contact_indicator: (N, T, 4)
-    - last_contact_pos_w: (N, T, 4, 3) # the last contact position in the world frame
-    """
-    N, T = tensordict.shape
-
-    info = tensordict["algo_"].split([3, 4, 4, 12], dim=-1)
-    root_link_pos_w = info[0]
-    root_link_quat_w = info[1]
-    contact_indicator = info[2].reshape(N, T, 4).bool()
-    last_contact_pos_w = info[3].reshape(N, T, 4, 3)
-
-    next_contact_pos_w = torch.zeros_like(last_contact_pos_w)
-    next_contact_episode_id = torch.zeros(N, T, 4, dtype=int, device=tensordict.device)
-    next_contact_episode_id_ = torch.zeros(N, 4, dtype=int, device=tensordict.device)
-    next_contact_episode_id_.fill_(-1)
-    contact_pos_w = torch.zeros(N, 4, 3, device=tensordict.device)
-
-    for t in reversed(range(T)):
-        in_contact = contact_indicator[:, t]
-        contact_pos_w =  torch.where(
-            in_contact.unsqueeze(-1),
-            last_contact_pos_w[:, t],
-            contact_pos_w
-        )
-        next_contact_pos_w[:, t] = contact_pos_w
-
-        next_contact_episode_id_ = torch.where(
-            in_contact,
-            tensordict["episode_id"][:, t].reshape(N, 1),
-            next_contact_episode_id_
-        )
-        next_contact_episode_id[:, t] = next_contact_episode_id_
-    
-    next_contact_pos_b = quat_rotate_inverse(
-        root_link_quat_w.reshape(N, T, 1, 4),
-        next_contact_pos_w - root_link_pos_w.reshape(N, T, 1, 3)
-    )
-    has_future_contact = next_contact_episode_id == tensordict["episode_id"].reshape(N, T, 1)
-    tensordict.set("has_future_contact", has_future_contact)
-    tensordict.set("next_contact_pos_w", next_contact_pos_w)
-    tensordict.set("next_contact_pos_b", next_contact_pos_b)
-    tensordict.set("next_contact_episode_id", next_contact_episode_id)
-    return tensordict
+cs.store("ppo_atec_ext", node=PPOConfig(stages=("policy",)), group="algo")
+cs.store("ppo_atec_ext_prior", node=PPOConfig(
+    train_every=48,
+    in_keys=("policy", "extero", "root_state_w"),
+    stages=("prior",),
+), group="algo")
 
 
 class MixedEncoder(nn.Module):
@@ -164,6 +121,162 @@ class MixedEncoder(nn.Module):
             cnn_feature = cnn_feature * mask_cnn
         feature = mlp_feature + cnn_feature
         return self.out(feature)
+
+
+class CVAE(nn.Module):
+    """
+    Conditional VAE over future trajectory given the same state as the policy.
+
+    Generative story: sample ``z ~ p(z | c)``, then ``x ~ p(x | z, c)`` where ``c`` is the
+    mixed proprio + extero embedding (same encoder as the policy). The training objective is
+    the ELBO using ``q(z | x, c)``: reconstruction plus KL ``KL(q(z|x,c) || p(z|c))``.
+
+    **Shapes**
+
+    - ``proprio``: ``(B, D)`` with ``D = proprio_shape`` (last observation dim).
+    - ``extero``: ``(B, C, H, W)`` matching ``extero_shape``.
+    - ``future_trajectory``: ``(B, horizon, 6)`` or flattened ``(B, horizon * 6)``. Each step is
+      3D position plus 3D heading direction, in the robot frame relative to the current root.
+
+    The posterior **does** depend on the future: ``future_encoder`` maps the flattened trajectory to
+    ``hidden_dim``, then ``posterior_net`` maps ``[condition(c), future_embedding]`` to ``q(z|x,c)``.
+    (Concatenating raw ``x`` into one MLP would still be a valid encoder; a separate trajectory MLP
+    scales better with horizon and aligns future features with the condition dimension.)
+
+    ``encode_prior`` returns parameters of **p(z|c)** (for sampling latents without a target trajectory).
+    ``decode`` maps ``(z, c)`` to the mean trajectory; use with ``z`` sampled from the prior during
+    rollouts, or from the posterior inside ``compute_loss``.
+    """
+
+    def __init__(
+        self,
+        proprio_shape: torch.Size,
+        extero_shape: torch.Size,
+        horizon: int,
+        latent_dim: int = 32,
+        hidden_dim: int = 256,
+    ) -> None:
+        super().__init__()
+        self.horizon = horizon
+        self.latent_dim = latent_dim
+        self.hidden_dim = hidden_dim
+        self.trajectory_dim = horizon * 6
+
+        self.condition_encoder = MixedEncoder(proprio_shape, extero_shape)
+
+        def mlp(in_dim: int, out_dim: int) -> nn.Sequential:
+            return nn.Sequential(
+                nn.Linear(in_dim, hidden_dim),
+                nn.Mish(),
+                nn.LayerNorm(hidden_dim),
+                nn.Linear(hidden_dim, hidden_dim),
+                nn.Mish(),
+                nn.Linear(hidden_dim, out_dim),
+            )
+
+        self.future_encoder = mlp(self.trajectory_dim, hidden_dim)
+        self.prior_net = mlp(hidden_dim, 2 * latent_dim)
+        self.posterior_net = mlp(2 * hidden_dim, 2 * latent_dim)
+        self.decoder_net = mlp(hidden_dim + latent_dim, self.trajectory_dim)
+
+    def _split_gaussian_params(self, h: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        mu, logvar = h.chunk(2, dim=-1)
+        return mu, logvar.clamp(min=-20.0, max=2.0)
+
+    @staticmethod
+    def _reparameterize(mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
+        std = (0.5 * logvar).exp()
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def encode_prior(
+        self, proprio: torch.Tensor, extero: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Prior ``p(z | c)``: returns ``(mu, logvar)`` each ``(B, latent_dim)``."""
+        c = self.condition_encoder(proprio, extero)
+        return self._split_gaussian_params(self.prior_net(c))
+
+    def encode_posterior(
+        self,
+        proprio: torch.Tensor,
+        extero: torch.Tensor,
+        future_trajectory: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Posterior ``q(z | x, c)``: returns ``(mu, logvar)`` each ``(B, latent_dim)``."""
+        c = self.condition_encoder(proprio, extero)
+        x = future_trajectory.reshape(future_trajectory.shape[0], self.trajectory_dim)
+        h_x = self.future_encoder(x)
+        h = torch.cat([c, h_x], dim=-1)
+        return self._split_gaussian_params(self.posterior_net(h))
+
+    def decode(self, z: torch.Tensor, proprio: torch.Tensor, extero: torch.Tensor) -> torch.Tensor:
+        """Decoder mean ``p(x | z, c)``: returns shape ``(B, horizon, 6)``."""
+        c = self.condition_encoder(proprio, extero)
+        h = torch.cat([c, z], dim=-1)
+        x_hat = self.decoder_net(h)
+        return x_hat.view(x_hat.shape[0], self.horizon, 6)
+
+    def compute_loss(
+        self,
+        proprio: torch.Tensor,  # (B, D)
+        extero: torch.Tensor,  # (B, C, H, W)
+        future_trajectory: torch.Tensor,  # (B, horizon, 6)
+        beta_kl: float = 1.0,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Single-sample ELBO (per batch mean).
+
+        Returns:
+            ``total``: ``recon + beta_kl * kl`` (scalar tensor, backprop target).
+            ``recon``: mean squared error between decoder mean and target trajectory.
+            ``kl``: mean ``KL(q(z|x,c) || p(z|c))`` (before ``beta_kl``).
+        """
+        x = future_trajectory.reshape(future_trajectory.shape[0], self.horizon, 6)
+        mu_q, logvar_q = self.encode_posterior(proprio, extero, x)
+        mu_p, logvar_p = self.encode_prior(proprio, extero)
+        z = self._reparameterize(mu_q, logvar_q)
+        x_hat = self.decode(z, proprio, extero)
+
+        recon = F.mse_loss(x_hat, x, reduction="mean")
+
+        var_q = logvar_q.exp()
+        var_p = logvar_p.exp()
+        log_var_ratio = logvar_p - logvar_q
+        mu_diff_sq = (mu_q - mu_p) ** 2
+        kl = 0.5 * (
+            log_var_ratio.sum(dim=-1)
+            - self.latent_dim
+            + (var_q / var_p).sum(dim=-1)
+            + (mu_diff_sq / var_p).sum(dim=-1)
+        )
+        kl = kl.mean()
+        total = recon + beta_kl * kl
+        return total, recon, kl
+
+    @torch.no_grad()
+    def sample_future(
+        self,
+        proprio: torch.Tensor,
+        extero: torch.Tensor,
+        num_samples: int = 1,
+    ) -> torch.Tensor:
+        """Sample ``z ~ p(z|c)`` and return decoder mean trajectory, shape ``(B, num_samples, H, 6)``."""
+        mu_p, logvar_p = self.encode_prior(proprio, extero)
+        B = mu_p.shape[0]
+        mu = mu_p.unsqueeze(1).expand(B, num_samples, self.latent_dim).reshape(B * num_samples, self.latent_dim)
+        logvar = logvar_p.unsqueeze(1).expand(B, num_samples, self.latent_dim).reshape(
+            B * num_samples, self.latent_dim
+        )
+        z = self._reparameterize(mu, logvar)
+        proprio_e = proprio.unsqueeze(1).expand(B, num_samples, *proprio.shape[1:]).reshape(
+            B * num_samples, *proprio.shape[1:]
+        )
+        extero_e = extero.unsqueeze(1).expand(B, num_samples, *extero.shape[1:]).reshape(
+            B * num_samples, *extero.shape[1:]
+        )
+        out = self.decode(z, proprio_e, extero_e)
+        return out.view(B, num_samples, self.horizon, 6)
+
 
 
 class PPOPolicy(TensorDictModuleBase):
@@ -234,30 +347,6 @@ class PPOPolicy(TensorDictModuleBase):
         self.actor(fake_input)
         self.critic(fake_input)
 
-        def is_matrix_shaped(param: torch.Tensor) -> bool:
-            return param.dim() == 2
-
-        if self.cfg.muon:
-            muon = torch.optim.Muon([
-                {"params": [p for p in self.actor.parameters() if is_matrix_shaped(p)]},
-                {"params": [p for p in self.critic.parameters() if is_matrix_shaped(p)]},
-            ], lr=cfg.lr, adjust_lr_fn="match_rms_adamw", weight_decay=0.01)
-
-            adamw = torch.optim.AdamW([
-                {"params": [p for p in self.actor.parameters() if not is_matrix_shaped(p)]},
-                {"params": [p for p in self.critic.parameters() if not is_matrix_shaped(p)]},
-            ], lr=cfg.lr, weight_decay=0.01)
-            self.opt = OptimizerGroup([muon, adamw])
-        else:
-            self.opt = torch.optim.AdamW(
-                [
-                    {"params": self.actor.parameters()},
-                    {"params": self.critic.parameters()},
-                ],
-                lr=cfg.lr,
-                weight_decay=0.01
-            )
-        
         def init_(module):
             if isinstance(module, nn.Linear):
                 nn.init.orthogonal_(module.weight, 0.02)
@@ -272,37 +361,89 @@ class PPOPolicy(TensorDictModuleBase):
         self.actor.apply(init_)
         self.critic.apply(init_)
 
+        self._configure_distributed()
+        self._configure_optimizers()
+
+        self.prior_horizon = self.cfg.prior_horizon
+        self.cvae = CVAE(
+            proprio_shape, extero_shape, horizon=self.prior_horizon
+        ).to(self.device)
+        with torch.no_grad():
+            p0 = fake_input[OBS_KEY].reshape(-1, proprio_shape)
+            e0 = fake_input["extero"].reshape(-1, *extero_shape)
+            x0 = torch.zeros(
+                p0.shape[0], self.prior_horizon, 6, device=self.device, dtype=p0.dtype
+            )
+            self.cvae.compute_loss(p0, e0, x0)[0]
+        self.cvae.apply(init_)
+        self.prior_opt = torch.optim.AdamW(
+            self.cvae.parameters(), lr=self.cfg.prior_lr, weight_decay=0.01
+        )
+
+        self.update = self._update
+        self.stage = self.cfg.stages[0]
+    
+    def _configure_optimizers(self):
+        def is_matrix_shaped(param: torch.Tensor) -> bool:
+            return param.dim() == 2
+
+        if self.cfg.muon:
+            muon = torch.optim.Muon([
+                {"params": [p for p in self.actor.parameters() if is_matrix_shaped(p)]},
+                {"params": [p for p in self.critic.parameters() if is_matrix_shaped(p)]},
+            ], lr=self.cfg.lr, adjust_lr_fn="match_rms_adamw", weight_decay=0.01)
+
+            adamw = torch.optim.AdamW([
+                {"params": [p for p in self.actor.parameters() if not is_matrix_shaped(p)]},
+                {"params": [p for p in self.critic.parameters() if not is_matrix_shaped(p)]},
+            ], lr=self.cfg.lr, weight_decay=0.01)
+            self.opt = OptimizerGroup([muon, adamw])
+        else:
+            self.opt = torch.optim.AdamW(
+                [
+                    {"params": self.actor.parameters()},
+                    {"params": self.critic.parameters()},
+                ],
+                lr=self.cfg.lr,
+                weight_decay=0.01
+            )
+    
+    def _configure_distributed(self):
         if active_adaptation.is_distributed():
-            if USE_DDP:
+            if self.cfg.use_ddp:
                 self.actor = DDP(self.actor)
                 self.critic = DDP(self.critic)
+                self.cvae = DDP(self.cvae)
             else:
                 for param in self.actor.parameters():
                     distr.broadcast(param, src=0)
                 for param in self.critic.parameters():
                     distr.broadcast(param, src=0)
-            self.world_size = active_adaptation.get_world_size()
-            
-        self.update = self._update
-        if self.cfg.compile and not active_adaptation.is_distributed():
-            # TODO: compile for multi-gpu training?
-            self.update = torch.compile(self.update, fullgraph=True)
-            # self.update = CudaGraphModule(self.update)
+                for param in self.cvae.parameters():
+                    distr.broadcast(param, src=0)
+        self.world_size = active_adaptation.get_world_size()
     
     def on_stage_start(self, stage: str):
-        pass
+        self.stage = stage
 
     def get_rollout_policy(self, mode: str="train", critic: bool=False):
         if critic:
-            policy = TDSeq(self.vecnorm, self.actor, self.critic)
+            modules = [self.vecnorm, self.actor, self.critic]
         else:
-            policy = TDSeq(self.vecnorm, self.actor)
-        if self.cfg.compile:
-            policy = torch.compile(policy, fullgraph=True)
-        return policy
+            modules = [self.vecnorm, self.actor]
+        rollout_policy = TDSeq(*modules)
+        return rollout_policy
 
-    @VecNorm.freeze()
     def train_op(self, tensordict: TensorDict):
+        if self.stage == "policy":
+            return self.train_policy(tensordict)
+        elif self.stage == "prior":
+            return self.train_prior(tensordict)
+        else:
+            raise ValueError(f"Invalid stage: {self.stage}")
+    
+    @VecNorm.freeze()
+    def train_policy(self, tensordict: TensorDict):
         assert VecNorm.FROZEN, "VecNorm must be frozen before training"
 
         tensordict = tensordict.exclude("stats", ("next", "stats"))
@@ -346,6 +487,72 @@ class PPOPolicy(TensorDictModuleBase):
         if active_adaptation.is_distributed():
             self.mlp_norm.synchronize(mode="broadcast")
             self.cnn_norm.synchronize(mode="broadcast")
+        return dict(sorted(infos.items()))
+
+    @VecNorm.freeze()
+    def train_prior(self, tensordict: TensorDict):
+        assert VecNorm.FROZEN, "VecNorm must be frozen before training"
+        N, T = tensordict.shape[:2]
+        H = self.prior_horizon
+        device = tensordict.device
+        dtype = tensordict[OBS_KEY].dtype
+
+        Sl = T - H
+        t_idx = torch.arange(Sl, device=device)
+        offsets = torch.arange(1, H + 1, device=device)
+        ft = t_idx.view(Sl, 1) + offsets.view(1, H) # (Sl, H)
+
+        # filter out cross-episode trajectories
+        has_done = tensordict[DONE_KEY].any(dim=1).reshape(N)
+
+        root_state_w = tensordict["root_state_w"][~has_done]
+        root_pos_w, root_quat_w, _, _ = root_state_w.split([3, 4, 3, 3], dim=-1)
+        pos_future_w = root_pos_w[:, ft, :]
+        quat_future_w = root_quat_w[:, ft, :]
+        quat_cur = root_quat_w[:, :Sl, None, :]
+        pos_cur = root_pos_w[:, :Sl, None, :]
+        delta_w = pos_future_w - pos_cur
+        
+        rel_pos_b = quat_rotate_inverse(quat_cur, delta_w)
+        ex = torch.tensor([1.0, 0.0, 0.0], device=device, dtype=dtype).view(1, 1, 1, 3)
+        heading_w = quat_rotate(quat_future_w, ex)
+        heading_b = quat_rotate_inverse(quat_cur, heading_w)
+        future_traj = torch.cat([rel_pos_b, heading_b], dim=-1)
+
+        obs_proprio = tensordict[OBS_KEY][~has_done, :Sl] # (N, T, D)
+        obs_extero = tensordict["extero"][~has_done, :Sl] # (N, T, C, H, W)
+        
+        proprio = self.mlp_norm(obs_proprio).flatten(0, 1) # (N * Sl, D)
+        extero = self.cnn_norm(obs_extero).flatten(0, 1) # (N * Sl, C, H, W)
+        future_flat = future_traj.flatten(0, 1) # (N * Sl, horizon, 6)
+        
+        infos = {"prior/loss": [], "prior/recon_loss": [], "prior/kl_loss": []}
+        batch_indices = torch.arange(proprio.shape[0], device=device).reshape(self.cfg.prior_inner_steps, -1)
+        beta = 1.0
+        for i in batch_indices.unbind(0):
+            self.prior_opt.zero_grad(set_to_none=True)
+            loss, recon, kl = self.cvae.compute_loss(
+                proprio[i], extero[i], future_flat[i], beta_kl=beta
+            )
+            loss.backward()
+            if active_adaptation.is_distributed() and not self.cfg.use_ddp:
+                for param in self.cvae.parameters():
+                    distr.all_reduce(param.grad, op=distr.ReduceOp.SUM)
+                    param.grad /= self.world_size
+            nn.utils.clip_grad_norm_(self.cvae.parameters(), self.max_grad_norm)
+            self.prior_opt.step()
+
+            infos["prior/loss"].append(loss.detach().item())
+            infos["prior/recon_loss"].append(recon.detach().item())
+            infos["prior/kl_loss"].append(kl.detach().item())
+
+        for k in ("prior/loss", "prior/recon_loss", "prior/kl_loss"):
+            infos[k] = sum(infos[k]) / len(infos[k])
+
+        if active_adaptation.is_distributed():
+            self.mlp_norm.synchronize(mode="broadcast")
+            self.cnn_norm.synchronize(mode="broadcast")
+
         return dict(sorted(infos.items()))
 
     @torch.no_grad()
@@ -419,7 +626,7 @@ class PPOPolicy(TensorDictModuleBase):
         self.opt.zero_grad()
         loss.backward()
 
-        if active_adaptation.is_distributed() and not USE_DDP:
+        if active_adaptation.is_distributed() and not self.cfg.use_ddp:
             for param in self.actor.parameters():
                 distr.all_reduce(param.grad, op=distr.ReduceOp.SUM)
                 param.grad /= self.world_size
