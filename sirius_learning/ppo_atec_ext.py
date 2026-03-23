@@ -45,12 +45,12 @@ from active_adaptation.learning.modules import IndependentNormal, VecNorm
 from active_adaptation.learning.utils.opt import OptimizerGroup
 from active_adaptation.learning.ppo.common import *
 from active_adaptation.utils.math import quat_rotate, quat_rotate_inverse
-
 torch.set_float32_matmul_precision('high')
 
 import active_adaptation
 import torch.distributed as distr
 from torch.nn.parallel import DistributedDataParallel as DDP
+from .encoders import MixedEncoder
 
 @dataclass
 class PPOConfig:
@@ -84,43 +84,6 @@ cs.store("ppo_atec_ext_prior", node=PPOConfig(
     in_keys=("policy", "extero", "root_state_w"),
     stages=("prior",),
 ), group="algo")
-
-
-class MixedEncoder(nn.Module):
-    def __init__(self, proprio_shape: torch.Size, terrain_shape: torch.Size):
-        super().__init__()
-
-        self.mlp_encoder = nn.Sequential(
-            nn.LazyLinear(256), nn.Mish(), nn.LayerNorm(256), 
-            nn.LazyLinear(256)
-        )
-        self.cnn_encoder = nn.Sequential(
-            FlattenBatch(
-                nn.Sequential(
-                    nn.LazyConv2d(8, kernel_size=3, stride=2, padding=1), 
-                    nn.Mish(), # nn.GroupNorm(num_channels=2, num_groups=2),
-                    nn.LazyConv2d(8, kernel_size=3, stride=2, padding=1),
-                    nn.Mish(), # nn.GroupNorm(num_channels=4, num_groups=2),
-                    nn.LazyConv2d(8, kernel_size=3, stride=2, padding=1),
-                    nn.Mish(), # nn.GroupNorm(num_channels=8, num_groups=2), 
-                    nn.Flatten(),
-                ),
-                data_dim=3,
-            ),
-            nn.LazyLinear(64),
-            nn.Mish(),
-            nn.LayerNorm(64),
-            nn.LazyLinear(256)
-        )
-        self.out = nn.Mish()
-
-    def forward(self, mlp_inp, cnn_inp, mask_cnn=None):
-        cnn_feature = self.cnn_encoder(cnn_inp)
-        mlp_feature = self.mlp_encoder(mlp_inp)
-        if mask_cnn is not None:
-            cnn_feature = cnn_feature * mask_cnn
-        feature = mlp_feature + cnn_feature
-        return self.out(feature)
 
 
 class CVAE(nn.Module):
@@ -431,6 +394,15 @@ class PPOPolicy(TensorDictModuleBase):
             modules = [self.vecnorm, self.actor, self.critic]
         else:
             modules = [self.vecnorm, self.actor]
+        if self.stage == "prior" and mode != "train":
+            def foo(tensordict: TensorDict):
+                proprio = self.mlp_norm(tensordict[OBS_KEY])
+                extero = self.cnn_norm(tensordict["extero"])
+                mu, _ = self.cvae.encode_prior(proprio, extero)
+                future = self.cvae.decode(mu, proprio, extero)
+                tensordict["future_traj"] = future[..., :3]
+                return tensordict
+            modules.append(foo)
         rollout_policy = TDSeq(*modules)
         return rollout_policy
 
