@@ -42,7 +42,7 @@ from typing import Union, Tuple
 from collections import OrderedDict
 
 from active_adaptation.learning.modules import IndependentNormal, VecNorm
-from active_adaptation.learning.utils.opt import OptimizerGroup
+from active_adaptation.learning.utils.opt import MuonAdamWWrapper
 from active_adaptation.learning.ppo.common import *
 from active_adaptation.utils.math import quat_rotate, quat_rotate_inverse
 torch.set_float32_matmul_precision('high')
@@ -324,9 +324,6 @@ class PPOPolicy(TensorDictModuleBase):
         self.actor.apply(init_)
         self.critic.apply(init_)
 
-        self._configure_distributed()
-        self._configure_optimizers()
-
         self.prior_horizon = self.cfg.prior_horizon
         self.cvae = CVAE(
             proprio_shape, extero_shape, horizon=self.prior_horizon
@@ -339,28 +336,16 @@ class PPOPolicy(TensorDictModuleBase):
             )
             self.cvae.compute_loss(p0, e0, x0)[0]
         self.cvae.apply(init_)
-        self.prior_opt = torch.optim.AdamW(
-            self.cvae.parameters(), lr=self.cfg.prior_lr, weight_decay=0.01
-        )
+
+        self._configure_distributed()
+        self._configure_optimizers()
 
         self.update = self._update
         self.stage = self.cfg.stages[0]
     
     def _configure_optimizers(self):
-        def is_matrix_shaped(param: torch.Tensor) -> bool:
-            return param.dim() == 2
-
         if self.cfg.muon:
-            muon = torch.optim.Muon([
-                {"params": [p for p in self.actor.parameters() if is_matrix_shaped(p)]},
-                {"params": [p for p in self.critic.parameters() if is_matrix_shaped(p)]},
-            ], lr=self.cfg.lr, adjust_lr_fn="match_rms_adamw", weight_decay=0.01)
-
-            adamw = torch.optim.AdamW([
-                {"params": [p for p in self.actor.parameters() if not is_matrix_shaped(p)]},
-                {"params": [p for p in self.critic.parameters() if not is_matrix_shaped(p)]},
-            ], lr=self.cfg.lr, weight_decay=0.01)
-            self.opt = OptimizerGroup([muon, adamw])
+            self.opt = MuonAdamWWrapper([self.actor, self.critic], lr=self.cfg.lr, weight_decay=0.01)
         else:
             self.opt = torch.optim.AdamW(
                 [
@@ -370,6 +355,9 @@ class PPOPolicy(TensorDictModuleBase):
                 lr=self.cfg.lr,
                 weight_decay=0.01
             )
+        self.prior_opt = torch.optim.AdamW(
+            self.cvae.parameters(), lr=self.cfg.prior_lr, weight_decay=0.01
+        )
     
     def _configure_distributed(self):
         if active_adaptation.is_distributed():
@@ -652,9 +640,3 @@ class PPOPolicy(TensorDictModuleBase):
         print(f"Successfully loaded {succeed_keys}.")
         return failed_keys
 
-
-def normalize(x: torch.Tensor, subtract_mean: bool=False):
-    if subtract_mean:
-        return (x - x.mean()) / x.std().clamp(1e-7)
-    else:
-        return x  / x.std().clamp(1e-7)
